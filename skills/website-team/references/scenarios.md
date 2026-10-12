@@ -40,6 +40,7 @@ Add it with `verify_fix.py add-check --site site --work work --scenario checks/N
 | `{"submit": "form css"}` | click the form's submit button once (JS click: a disabled button does nothing) |
 | `{"double_submit": "form css"}` | click the submit button twice instantly |
 | `{"wait": 300}` | wait milliseconds |
+| `{"visit": "cart.html"}` | open another page of the site in the same browser session (cookies/localStorage kept) |
 
 Options: `"viewport": "mobile"` (375×667), `"offline": ["/api/order"]` (requests to these paths fail like a dropped network), `"settle_ms": 900` (wait after the steps).
 
@@ -60,3 +61,26 @@ Method may be omitted (`"/api/order"` = any method). Requests are only those mad
 - One behaviour per scenario. Name it after the correct behaviour.
 - Prefer stable selectors (ids, names) the site already has. If a fix must rename them, the scenario will break: that shows up as needs_review/regression, which is correct.
 - Text expectations should use short fragments (`contains`) so harmless rewording does not break them, unless the exact text matters.
+
+## Form declarations (for the generic form check)
+
+The generic check fills every form with plain test values and submits it. When that cannot represent real use, declare (once, add-only, with a reason) in a file passed to `add-check`:
+
+```json
+{"form_setup": {"#order-form": [{"visit": "index.html"}, {"click": ".add"}]},
+ "form_values": {"#order-form": {"address": "12 King Fahd Road, Al Olaya, Riyadh", "agree": true}},
+ "reason": "the order needs an item in the cart (added on the home page) and a detailed address"}
+```
+
+- `form_setup`: steps run first (`click`, `fill`, `select`, `check`, `wait`, `visit`); if they leave the form page, it is reopened.
+- `form_values`: realistic values by field `name` (checkbox: true/false; radio: the value to pick).
+- Only the affected form check is re-run (3 times); declarations can never be replaced or removed, and appear in the report.
+- A declaration must make the test *realistic*, not easy: never use it to skip a real requirement of the form.
+
+## Retiring a check that was written wrongly
+
+If a scenario is wrong (e.g. it expects Western digits while the site correctly shows Arabic digits), first add a corrected scenario with a **new id**, then:
+
+`verify_fix.py retire-check --site site --work work --id scenario:old --reason "why the check itself was wrong" --replaced-by scenario:new`
+
+Without a replacement, retiring needs the user's agreement (`--approved`). Retired checks stay in `site-tests.json` under `retired` with their status at retirement, are listed in the report, and their ids can never be reused. Never retire a check because the site fails it.
