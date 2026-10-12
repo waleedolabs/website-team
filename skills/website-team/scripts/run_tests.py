@@ -88,6 +88,18 @@ def make_handler(site_dir, backend):
     return H
 
 
+class QuietServer(ThreadingHTTPServer):
+    """The browser often closes connections mid-transfer (navigation, page close). Those disconnects are
+    normal and must not print tracebacks that look like failures; any other server error is still shown."""
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
+
+
 # ------------------------------------------------------------------ helpers
 def row(cid, name, status, detail, evidence=None):
     return {"id": cid, "name": name, "status": status, "detail": detail, "evidence": evidence}
@@ -765,7 +777,7 @@ def run(site_dir, shots=None, shots_only=False, only=None):
     skip = cfg.get("skip", [])
     pages = find_pages(site, cfg)
     target = groups_for(only) if only else None
-    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(str(site), backend))
+    server = QuietServer(("127.0.0.1", 0), make_handler(str(site), backend))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     origin = f"http://127.0.0.1:{server.server_address[1]}"
     base = origin + "/"
