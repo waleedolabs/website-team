@@ -1,6 +1,13 @@
 ---
 name: website-team
-description: Runs a full website team on a site: understands the project, proposes three genuinely different design directions, builds the chosen one, then a four-member review committee (advocate, critic, technical inspector, chair) reviews it, and every fix is verified by real browser tests with automatic rollback, ending in an honest report. Use when the user asks to design, build, review, test or improve a website or landing page with "the website team", "the committee", "فريق التصميم", "اللجنة", or asks for a site that is reviewed, tested and fixed rather than just generated.
+description: >-
+  Runs a full website team on a site - understands the project, proposes three genuinely
+  different design directions, builds the chosen one, then a four-member review committee
+  (advocate, critic, technical inspector, chair) reviews it, and every fix is verified by real
+  browser tests with automatic rollback, ending in an honest report. Use when the user asks to
+  design, build, review, test or improve a website or landing page with "the website team",
+  "the committee", "فريق الموقع", "فريق التصميم", "اللجنة", or asks for a site that is reviewed,
+  tested and fixed rather than just generated.
 ---
 
 # Website Team
