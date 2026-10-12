@@ -139,6 +139,35 @@ def main():
     run("add a custom check (fails -> suspicion proven)", 0, ["add-check", *S, *W, "--scenario", prop("sc2", sc2)])
     run("fix targeting the custom check -> accepted", 0, tr("altfix", {"title": "alt", "kind": "fix", "targets": ["scenario:alt-latte"],
         "ops": [R('<img src="latte.jpg" width', '<img src="latte.jpg" alt="لاتيه" width')]}), reason="fixed scenario:alt-latte")
+    # retiring a wrongly written check
+    wrong = {"id": "status-wrong", "page": "index.html", "desc": "written wrongly: expects text that is never shown",
+             "steps": [{"click": "#order-btn"}], "expect": [{"text": "#st", "equals": "nope"}]}
+    run("add a wrongly written check (fails)", 0, ["add-check", *S, *W, "--scenario", prop("wrong", wrong)], reason="PROVEN")
+    rt = lambda *x: ["retire-check", *S, *W, "--id", "scenario:status-wrong", *x]
+    run("retire without a reason -> rejected", 1, rt(), reason="--reason is required")
+    run("retire a generic check -> rejected", 1, ["retire-check", *S, *W, "--id", "alt:index.html", "--reason", "x" * 20, "--approved"],
+        reason="only custom scenario checks")
+    run("retire with a non-existent replacement -> rejected", 1, rt("--reason", "expected text was a typo in the check", "--replaced-by", "scenario:nope"),
+        reason="must be another active check")
+    run("retire without replacement or approval -> rejected", 1, rt("--reason", "expected text was a typo in the check"),
+        reason="needs the user's approval")
+    run("retire with an active replacement -> accepted", 0, rt("--reason", "expected text was a typo in the check",
+        "--replaced-by", "scenario:order-shows-status"), reason="CHECK RETIRED")
+    run("retire the same check again -> rejected", 1, rt("--reason", "expected text was a typo in the check", "--approved"),
+        reason="already retired")
+    run("re-adding a retired id -> rejected", 1, ["add-check", *S, *W, "--scenario", prop("wrong2", wrong)], reason="was retired")
+    cfg = json.loads((site / "site-tests.json").read_text(encoding="utf-8"))
+    kept = any(x["id"] == "status-wrong" for x in cfg["scenarios"]) and any(x["id"] == "scenario:status-wrong" for x in cfg.get("retired", []))
+    st = json.loads((work / "state.json").read_text(encoding="utf-8"))
+    results.append(kept and "scenario:status-wrong" not in st["results"])
+    print(f"{'OK  ' if results[-1] else 'FAIL'} retired check kept on record, no longer active")
+    # form amendments: values must be add-only and need a reason
+    run("form amendment without reason -> rejected", 1, ["add-check", *S, *W, "--scenario",
+        prop("fv0", {"form_values": {"#contact-form": {"name": "Sara"}}})], reason="needs a 'reason'")
+    run("form_values amendment -> accepted", 0, ["add-check", *S, *W, "--scenario",
+        prop("fv1", {"form_values": {"#contact-form": {"name": "Sara"}}, "reason": "realistic name"})], reason="CONTRACT AMENDED")
+    run("replacing existing form_values -> rejected", 1, ["add-check", *S, *W, "--scenario",
+        prop("fv2", {"form_values": {"#contact-form": {"name": "Other"}}, "reason": "try to replace"})], reason="never replaced")
     # outside edits and caps
     with open(site / "index.html", "a", encoding="utf-8") as f:
         f.write("<!-- manual edit -->")

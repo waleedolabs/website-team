@@ -39,7 +39,9 @@ def main():
         L.append("")
         L.append(f"> عدد الفحوص في النهاية ({len(s)}) أكبر من البداية ({len(b)}): أُضيف {len(added_ids)} فحصاً سلوكياً مخصّصاً"
                  + (f"، وظهر {len(new_other)} فحصاً جديداً لعناصر أُضيفت للموقع" if new_other else "") + ".")
-    proven_later = [e["targets"][0] for e in log if e["decision"] == "check-added" and e["initial_status"] == "fail"]
+    retired = {e["targets"][0]: e for e in log if e["decision"] == "check-retired"}
+    proven_later = [e["targets"][0] for e in log if e["decision"] == "check-added" and e["initial_status"] == "fail"
+                    and e["targets"][0] not in retired]
     base_fail = [i for i, r in b.items() if r["status"] == "fail"]
     all_proven = base_fail + proven_later
     still = [i for i in all_proven if s.get(i, {}).get("status") != "pass"]
@@ -81,10 +83,18 @@ def main():
           "| # | المحاولة | النوع | القرار | السبب |", "|---|---|---|---|---|"]
     for n, e in enumerate(log, 1):
         d = {"accepted": "✅ قُبلت", "rejected": "❌ رُفضت", "check-added": "🧪 فحص أُضيف",
-             "contract-amended": "🧪 شرط مسبق أُضيف لفحص",
+             "contract-amended": "🧪 شرط مسبق أُضيف لفحص", "check-retired": "🗄️ فحص سُحب",
              "rebaseline": "⚠️ تغيير خارج الحلقة (غير مُتحقَّق منه)"}[e["decision"]]
         reason = e["reason"].replace("|", "/")
         L.append(f"| {n} | {e['title']} | {e['kind']} | {d} | {reason} |")
+    if retired:
+        L += ["", f"### فحوص سُحبت لأنها كُتبت خطأ ({len(retired)})",
+              "(لم تُحذف: تعريفها باقٍ في site-tests.json تحت retired، ولا تُحسب ضمن المشاكل المثبتة)"]
+        for cid, e in retired.items():
+            rep = e.get("replaced_by")
+            rep_txt = (f"؛ البديل `{rep}` حالته الآن «{LABEL.get(s.get(rep, {}).get('status'), 'غير موجود')}»"
+                       if rep else "؛ بموافقة المستخدم ودون بديل")
+            L.append(f"- `{cid}` (كانت حالته «{LABEL[e['status_at_retirement']]}»): {e['rationale']}{rep_txt}")
     amend = [e for e in log if e["decision"] == "contract-amended"]
     if amend:
         L += ["", "### تعديلات على شروط الاختبار (مُعلنة)"]

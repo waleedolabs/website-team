@@ -10,6 +10,8 @@
   verify_fix.py add-check --site SITE --work WORK --scenario S.json [MORE.json ...]
       Add a custom behaviour check (scenario) to site-tests.json. Must give a stable pass/fail and
       must not change any other result. FAIL = a suspicion is now proven; PASS = refuted, kept as guard.
+  verify_fix.py retire-check --site SITE --work WORK --id scenario:X --reason "..." [--replaced-by scenario:Y | --approved]
+      Withdraw a scenario that was written wrongly (kept on record, never deleted).
   verify_fix.py status --work WORK
       Show the current failing/needs_review checks and attempt counts.
 
@@ -248,6 +250,8 @@ def cmd_add_check(a):
                      "rationale": sc.get("desc", ""), "source": sc.get("source", ""), "targets": [cid], "ops": [],
                      "scenario": sc, "counted": False, "version_before": state["version"]}
 
+    cfg_now = json.loads((site / "site-tests.json").read_text(encoding="utf-8")) if (site / "site-tests.json").exists() else {}
+    retired_ids = {r["id"] for r in cfg_now.get("retired", [])}
     good, ids = [], set()
     for sc in scs:
         cid, entry = entry_for(sc)
@@ -255,6 +259,8 @@ def cmd_add_check(a):
         reason = None
         if problems:
             reason = "invalid scenario: " + "; ".join(problems)
+        elif cid in retired_ids:
+            reason = f"{cid} was retired; ids are permanent, use a new id"
         elif cid in state["results"] or cid in ids:
             reason = f"{cid} already exists (scenario ids are permanent; use a new id)"
         if reason:
@@ -398,6 +404,56 @@ def amend_form_setup(site, work, state, doc):
     print(f"CONTRACT AMENDED ({' + '.join(parts)}) for {key} -> v{version}: {moves}")
 
 
+
+def cmd_retire_check(a):
+    """Withdraw a custom scenario check that was written wrongly. Never deletes it: the definition stays in
+    site-tests.json and is listed under 'retired' with the reason, its status at retirement and any replacement.
+    Rules: scenario checks only; reason required; either --replaced-by an existing active check, or --approved."""
+    site, work = check_layout(a.site, a.work)
+    state = load(work / "state.json")
+    log = read_log(work)
+    cid = a.id
+    entry = {"attempt": len(log) + 1, "at": now(), "kind": "retire-check", "title": f"retire check {cid}",
+             "rationale": a.reason or "", "source": "", "targets": [cid], "ops": [], "counted": False,
+             "replaced_by": a.replaced_by, "version_before": state["version"]}
+
+    def reject(reason):
+        entry.update(decision="rejected", reason=reason)
+        log_decision(work, entry)
+        sys.exit(f"RETIRE REJECTED: {reason}")
+
+    cfg_p = site / "site-tests.json"
+    cfg = json.loads(cfg_p.read_text(encoding="utf-8")) if cfg_p.exists() else {}
+    retired_ids = {r["id"] for r in cfg.get("retired", [])}
+    if not cid.startswith("scenario:"):
+        reject("only custom scenario checks can be retired (generic checks are part of the test suite)")
+    if cid in retired_ids:
+        reject(f"{cid} is already retired")
+    if cid not in state["results"]:
+        reject(f"{cid} is not an active check")
+    if not a.reason or len(a.reason.strip()) < 15:
+        reject("a clear --reason is required (at least 15 characters; it is shown in the report)")
+    if a.replaced_by:
+        if a.replaced_by == cid or a.replaced_by not in state["results"] or a.replaced_by in retired_ids:
+            reject(f"--replaced-by must be another active check; {a.replaced_by!r} is not")
+    elif not a.approved:
+        reject("without --replaced-by, retiring a check needs the user's approval (--approved after they agreed)")
+    if tree_hash(site) != state["tree_hash"]:
+        reject("site was changed outside the loop since the last verified state; run 'init --force' first")
+    status = state["results"][cid]["status"]
+    cfg.setdefault("retired", []).append({"id": cid, "reason": a.reason.strip(), "replaced_by": a.replaced_by,
+                                          "status_at_retirement": status, "at": now()})
+    cfg_p.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    results = {i: r for i, r in state["results"].items() if i != cid}
+    version = state["version"] + 1
+    snapshot(site, work / "versions" / f"v{version}")
+    save(work / "state.json", {**state, "version": version, "at": now(), "results": results, "tree_hash": tree_hash(site)})
+    entry.update(decision="check-retired", reason=f"retired (was {status}): {a.reason.strip()}",
+                 status_at_retirement=status, version_after=version, approved=bool(a.approved))
+    log_decision(work, entry)
+    print(f"CHECK RETIRED {cid} (was {status}) -> v{version}" + (f"; replaced by {a.replaced_by}" if a.replaced_by else "; user-approved"))
+
+
 def cmd_status(a):
     work = Path(a.work)
     state = load(work / "state.json")
@@ -418,9 +474,13 @@ def main():
     p.add_argument("--proposal", required=True); p.add_argument("--approved", action="store_true")
     p = sub.add_parser("add-check"); p.add_argument("--site", required=True); p.add_argument("--work", required=True)
     p.add_argument("--scenario", required=True, nargs="+", help="one or more scenario JSON files")
+    p = sub.add_parser("retire-check"); p.add_argument("--site", required=True); p.add_argument("--work", required=True)
+    p.add_argument("--id", required=True); p.add_argument("--reason"); p.add_argument("--replaced-by")
+    p.add_argument("--approved", action="store_true")
     p = sub.add_parser("status"); p.add_argument("--work", required=True)
     a = ap.parse_args()
-    {"init": cmd_init, "try": cmd_try, "add-check": cmd_add_check, "status": cmd_status}[a.cmd](a)
+    {"init": cmd_init, "try": cmd_try, "add-check": cmd_add_check, "retire-check": cmd_retire_check,
+     "status": cmd_status}[a.cmd](a)
 
 
 if __name__ == "__main__":
