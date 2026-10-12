@@ -37,7 +37,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from wt_common import apply_ops, compare, counts, run_suite
+from wt_common import apply_ops, compare, counts, run_suite, run_suite_incremental, run_targeted
 
 MAX_PER_TARGET = 3
 MAX_TOTAL = 25
@@ -177,8 +177,8 @@ def cmd_try(a):
     if not ok:
         shutil.rmtree(cand)
         reject(f"patch did not apply: {msg}")
-    after = run_suite(cand)
     before = state["results"]
+    after = run_suite_incremental(cand, before)
     improved, regressed, flaky = compare(before, after["results"], allowed_removals=removes)
     hit = [t for t in targets if t in improved]
     details = {i: after["results"][i]["detail"] for i in set(regressed + flaky + targets) if i in after["results"]}
@@ -275,9 +275,10 @@ def cmd_add_check(a):
     cfg = json.loads(cfg_p.read_text(encoding="utf-8")) if cfg_p.exists() else {}
     cfg.setdefault("scenarios", []).extend(good)
     cfg_p.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    after = run_suite(cand)
-    changed = [i for i, r in after["results"].items()
-               if i not in ids and (i not in state["results"] or state["results"][i]["status"] != r["status"])]
+    # the site itself is unchanged, so only the new checks can produce new information: run them 3x
+    new_results = run_targeted(cand, sorted(ids))
+    after = {"results": {**state["results"], **new_results}}
+    changed = []
     if changed:
         shutil.rmtree(cand)
         for sc in good:
@@ -308,7 +309,7 @@ def cmd_add_check(a):
     shutil.rmtree(cand)
     version = state["version"] + 1
     snapshot(site, work / "versions" / f"v{version}")
-    save(work / "state.json", {"version": version, "at": now(), **after, "results": results, "tree_hash": tree_hash(site)})
+    save(work / "state.json", {**state, "version": version, "at": now(), "results": results, "tree_hash": tree_hash(site)})
     for sc, cid, entry, new in usable:
         if new["status"] == "fail":
             outcome = "currently FAILS: the suspected problem is now PROVEN"
@@ -375,9 +376,9 @@ def amend_form_setup(site, work, state, doc):
             reject(f"{key} already has {part} (declarations can only be added, never replaced)")
         cfg.setdefault(part, {})[key] = val
     cfg_p.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    after = run_suite(cand)
-    changed = [i for i, r in after["results"].items()
-               if i not in affected and (i not in state["results"] or state["results"][i]["status"] != r["status"])]
+    # only the affected form check can change (site files are unchanged): run it 3x
+    after = {"results": {**state["results"], **run_targeted(cand, affected)}}
+    changed = []
     bad = [i for i in affected if after["results"].get(i, {}).get("status") not in ("pass", "fail")
            or after["results"][i]["flaky"]]
     if changed or bad:
@@ -387,7 +388,8 @@ def amend_form_setup(site, work, state, doc):
     shutil.rmtree(cand)
     version = state["version"] + 1
     snapshot(site, work / "versions" / f"v{version}")
-    save(work / "state.json", {"version": version, "at": now(), **after, "tree_hash": tree_hash(site)})
+    save(work / "state.json", {**state, "version": version, "at": now(), "results": after["results"],
+                               "tree_hash": tree_hash(site)})
     moves = {i: f"{state['results'][i]['status']} -> {after['results'][i]['status']}" for i in affected}
     entry.update(decision="contract-amended", reason=f"{' + '.join(parts)} added; {moves}", version_after=version,
                  initial_status=after["results"][affected[0]]["status"],

@@ -71,12 +71,14 @@ def reverse_ops(ops):
 
 
 # ------------------------------------------------------------------ running the suite
-def run_once(site_dir):
+def run_once(site_dir, only=None):
     fd, out = tempfile.mkstemp(suffix=".json")
     os.close(fd)
+    cmd = [sys.executable, str(HERE / "run_tests.py"), str(site_dir), "--out", out, "--quiet"]
+    if only:
+        cmd += ["--only", ",".join(sorted(only))]
     try:
-        p = subprocess.run([sys.executable, str(HERE / "run_tests.py"), str(site_dir), "--out", out, "--quiet"],
-                           capture_output=True, text=True, timeout=600)
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if p.returncode != 0:
             raise RuntimeError("test runner failed: " + (p.stderr or p.stdout)[-500:])
         return json.loads(Path(out).read_text(encoding="utf-8"))
@@ -84,8 +86,62 @@ def run_once(site_dir):
         Path(out).unlink(missing_ok=True)
 
 
+def _merge(runs, ids_filter=None):
+    maps = [{r["id"]: r for r in x["results"]} for x in runs]
+    ids = []
+    for m in maps:
+        for i in m:
+            if i not in ids and (ids_filter is None or i in ids_filter):
+                ids.append(i)
+    merged = {}
+    for i in ids:
+        sts = [m[i]["status"] if i in m else "missing" for m in maps]
+        first = next(m[i] for m in maps if i in m)
+        flaky = len(set(sts)) > 1
+        merged[i] = {**first, "status": "needs_review" if flaky else sts[0], "flaky": flaky}
+        if flaky:
+            merged[i]["detail"] = f"FLAKY: status differs between runs {sts}"
+    return merged
+
+
+def run_targeted(site_dir, ids, n=SUITE_RUNS):
+    """Run only the checks in `ids` (their groups), n times. Returns id -> merged result for those ids."""
+    runs = [run_once(site_dir, only=ids) for _ in range(n)]
+    merged = _merge(runs, ids_filter=set(ids))
+    for i in ids:  # an id that never appeared is reported, not silently dropped
+        merged.setdefault(i, {"id": i, "name": i, "status": "missing", "detail": "check not produced", "evidence": None, "flaky": False})
+    return merged
+
+
+def run_suite_incremental(site_dir, before, n=SUITE_RUNS):
+    """One full run; every check whose status differs from `before` (or is new / missing) is re-run n-1 more
+    times in targeted mode, and flagged flaky if its status is not identical across all n runs.
+    Unchanged checks agree with a state that was itself verified, so they need no extra runs."""
+    full = run_once(site_dir)
+    now_ = {r["id"]: r for r in full["results"]}
+    changed = sorted(i for i in set(now_) | set(before)
+                     if not i.startswith("N:") and (now_.get(i, {}).get("status") != before.get(i, {}).get("status")))
+    reruns = [run_once(site_dir, only=changed) for _ in range(n - 1)] if changed else []
+    merged = _merge([full] + reruns) if not changed else _merge([full])
+    if changed:
+        rmaps = [{r["id"]: r for r in x["results"]} for x in reruns]
+        for i in changed:
+            sts = [now_[i]["status"] if i in now_ else "missing"] + [m[i]["status"] if i in m else "missing" for m in rmaps]
+            if i in merged:
+                flaky = len(set(sts)) > 1
+                merged[i]["flaky"] = flaky
+                merged[i]["status"] = "needs_review" if flaky else sts[0]
+                if flaky:
+                    merged[i]["detail"] = f"FLAKY: status differs between runs {sts}"
+            elif len(set(sts)) > 1:  # disappeared in the full run but reappeared in a rerun
+                merged[i] = {"id": i, "name": i, "status": "needs_review", "flaky": True, "evidence": None,
+                             "detail": f"FLAKY: status differs between runs {sts}"}
+    return {"tree_hash": full["tree_hash"], "pages": full["pages"], "results": merged,
+            "runs": f"1 full + {n - 1} targeted reruns of {len(changed)} changed checks" if changed else "1 full (no change vs verified state)"}
+
+
 def run_suite(site_dir, n=SUITE_RUNS):
-    """Run the suite n times. A check whose status differs between runs is marked flaky/needs_review."""
+    """Run the full suite n times. A check whose status differs between runs is marked flaky/needs_review."""
     runs = [run_once(site_dir) for _ in range(n)]
     maps = [{r["id"]: r for r in x["results"]} for x in runs]
     ids = []

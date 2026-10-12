@@ -252,7 +252,7 @@ INVALID_JS = """(formIndex) => [...document.querySelectorAll('form')[formIndex].
 
 
 # ------------------------------------------------------------------ page-level checks
-def check_page(cx, base, page_name, results, skip, form_setup=None, form_values=None):
+def check_page(cx, base, page_name, results, skip, form_setup=None, form_values=None, groups=None):
     url = urljoin(base, page_name)
     P = page_name
 
@@ -262,6 +262,9 @@ def check_page(cx, base, page_name, results, skip, form_setup=None, form_values=
         results.append(r)
 
     def safe(cid, name, fn):
+        group = GROUP_OF_KIND.get(cid.split(":", 1)[0])
+        if groups is not None and group not in groups:
+            return
         if any(cid.startswith(s) for s in skip):
             results.append(row(cid, name, "not_run", "skipped by site-tests.json"))
             return
@@ -706,6 +709,31 @@ def run_scenario(cx, base, sc):
     return row(cid, name, "pass", f"all {len(sc['expect'])} expectations met")
 
 
+# ------------------------------------------------------------------ targeted runs
+GROUP_OF_KIND = {"load": "load", "console": "load", "external": "load",
+                 "viewport": "static", "lang": "static", "title": "static", "alt": "static", "img": "static",
+                 "contrast": "static", "labels": "static", "static": "static",
+                 "overflow": "overflow", "link": "link", "btn": "btn", "btn-hidden": "btn", "form": "form"}
+
+
+def groups_for(ids):
+    """Map check ids to what must run: {(page, group)} for page checks and {scenario_id} for scenarios.
+    Unknown ids return None (= run everything)."""
+    page_groups, scen = set(), set()
+    for cid in ids:
+        kind, _, rest = cid.partition(":")
+        if kind == "N":
+            continue
+        if kind == "scenario":
+            scen.add(rest)
+            continue
+        if kind not in GROUP_OF_KIND or not rest:
+            return None
+        page = rest.split(":", 1)[0]
+        page_groups.add((page, GROUP_OF_KIND[kind]))
+    return page_groups, scen
+
+
 # ------------------------------------------------------------------ main
 def find_pages(site, cfg):
     if cfg.get("pages"):
@@ -727,13 +755,16 @@ def tree_hash(site):
     return h.hexdigest()[:16]
 
 
-def run(site_dir, shots=None, shots_only=False):
+def run(site_dir, shots=None, shots_only=False, only=None):
+    """only: optional list of check ids; run just the groups that produce them (results may include
+    sibling checks of the same group)."""
     site = Path(site_dir).resolve()
     cfg_path = site / "site-tests.json"
     cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
     backend = cfg.get("backend", {})
     skip = cfg.get("skip", [])
     pages = find_pages(site, cfg)
+    target = groups_for(only) if only else None
     server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(str(site), backend))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     origin = f"http://127.0.0.1:{server.server_address[1]}"
@@ -745,11 +776,21 @@ def run(site_dir, shots=None, shots_only=False):
         if not pages:
             results.append(row("site", "site has HTML pages", "fail", "no .html files found"))
         for pg in pages:
-            if not shots_only:
+            if shots_only:
+                continue
+            if target is None:
                 check_page(cx, base, pg, results, skip, cfg.get("form_setup", {}), cfg.get("form_values", {}))
+            else:
+                gs = {g for (p_, g) in target[0] if p_ == pg}
+                if gs:
+                    check_page(cx, base, pg, results, skip, cfg.get("form_setup", {}), cfg.get("form_values", {}), gs)
         if not shots_only:
+            retired = {r["id"] for r in cfg.get("retired", [])}
             for sc in cfg.get("scenarios", []):
-                results.append(run_scenario(cx, base, sc))
+                if f"scenario:{sc.get('id')}" in retired:
+                    continue
+                if target is None or sc.get("id") in target[1]:
+                    results.append(run_scenario(cx, base, sc))
         if shots:
             out = Path(shots)
             out.mkdir(parents=True, exist_ok=True)
@@ -765,6 +806,9 @@ def run(site_dir, shots=None, shots_only=False):
                         pass
         browser.close()
     server.shutdown()
+    if target is not None:
+        return {"site": str(site), "tree_hash": tree_hash(site), "pages": pages,
+                "backend_declared": backend, "results": results, "partial": True}
     results += [
         row("N:performance", "performance audit (Lighthouse)", "not_run", "not available in this runner"),
         row("N:a11y-full", "full accessibility audit (axe/Lighthouse)", "not_run",
@@ -782,6 +826,7 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--shots", help="save desktop+mobile screenshots of every page into this folder")
     ap.add_argument("--shots-only", action="store_true", help="only take screenshots, run no checks")
+    ap.add_argument("--only", help="comma-separated check ids: run only the groups that produce them")
     ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args()
     if not Path(a.site_dir).is_dir():
@@ -790,7 +835,7 @@ def main():
     if a.shots_only and not a.shots:
         print("ERROR: --shots-only needs --shots DIR", file=sys.stderr)
         return 2
-    data = run(a.site_dir, a.shots, a.shots_only)
+    data = run(a.site_dir, a.shots, a.shots_only, a.only.split(",") if a.only else None)
     if a.shots_only:
         print(f"screenshots saved to {a.shots}")
         return 0

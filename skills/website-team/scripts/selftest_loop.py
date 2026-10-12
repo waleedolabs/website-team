@@ -13,7 +13,65 @@ FIX = HERE.parent / "fixtures"
 V = [sys.executable, str(HERE / "verify_fix.py")]
 
 
+def unit_tests():
+    """Deterministic unit tests of the verdict logic with scripted run results (no browser)."""
+    import wt_common as wc
+    ok_all = []
+
+    def res(**st):
+        return {"tree_hash": "x", "pages": ["index.html"],
+                "results": [{"id": k.replace("__", ":"), "name": k, "status": v, "detail": v, "evidence": None}
+                            for k, v in st.items()]}
+
+    def scripted(seq):
+        it = iter(seq)
+        return lambda site, only=None: next(it)
+
+    before = {"a__1".replace("__", ":"): {"status": "pass"}, "b:1": {"status": "fail"}, "c:1": {"status": "pass"}}
+    cases = [
+        ("unchanged -> no reruns, not flaky", [res(a__1="pass", b__1="fail", c__1="pass")],
+         lambda r: r["results"]["b:1"]["status"] == "fail" and not r["results"]["b:1"]["flaky"] and "no change" in r["runs"]),
+        ("consistent change confirmed by reruns", [res(a__1="pass", b__1="pass", c__1="pass"), res(b__1="pass"), res(b__1="pass")],
+         lambda r: r["results"]["b:1"]["status"] == "pass" and not r["results"]["b:1"]["flaky"]),
+        ("change that flips on rerun -> flaky", [res(a__1="pass", b__1="pass", c__1="pass"), res(b__1="fail"), res(b__1="pass")],
+         lambda r: r["results"]["b:1"]["flaky"] and r["results"]["b:1"]["status"] == "needs_review"),
+        ("check gone in all runs -> missing (a removal)", [res(a__1="pass", b__1="fail"), res(), res()],
+         lambda r: "c:1" not in r["results"]),
+        ("check gone then back -> flaky", [res(a__1="pass", b__1="fail"), res(c__1="pass"), res()],
+         lambda r: r["results"].get("c:1", {}).get("flaky") is True),
+    ]
+    saved = wc.run_once
+    try:
+        for name, seq, cond in cases:
+            wc.run_once = scripted(seq)
+            r = wc.run_suite_incremental("unused", before)
+            ok = bool(cond(r))
+            ok_all.append(ok)
+            print(f"{'OK  ' if ok else 'FAIL'} unit: {name}")
+    finally:
+        wc.run_once = saved
+    # compare(): regression rules
+    B = {"p": {"status": "pass", "flaky": False}, "f": {"status": "fail", "flaky": False}, "n": {"status": "needs_review", "flaky": False}}
+    A = lambda **st: {k: {"status": v, "flaky": False} for k, v in st.items()}
+    rules = [
+        ("pass -> fail is a regression", A(p="fail", f="fail", n="needs_review"), ["p"]),
+        ("fail -> needs_review is a regression (masking)", A(p="pass", f="needs_review", n="needs_review"), ["f"]),
+        ("needs_review -> fail is a regression", A(p="pass", f="fail", n="fail"), ["n"]),
+        ("removed check is a regression", A(p="pass", n="needs_review"), ["f"]),
+        ("new failing check is a regression", A(p="pass", f="fail", n="needs_review", x="fail"), ["x"]),
+        ("fail -> pass is an improvement, not a regression", A(p="pass", f="pass", n="needs_review"), []),
+    ]
+    for name, after, want in rules:
+        _, reg, _ = wc.compare(B, after)
+        ok = reg == sorted(want)
+        ok_all.append(ok)
+        print(f"{'OK  ' if ok else 'FAIL'} unit: {name} (got {reg})")
+    return ok_all
+
+
 def main():
+    sys.path.insert(0, str(HERE))
+    unit_results = unit_tests()
     T = Path(tempfile.mkdtemp(prefix="wt-looptest-"))
     site, work, props = T / "site", T / "work", T / "p"
     shutil.copytree(FIX / "coffee-buggy", site)
@@ -105,6 +163,7 @@ def main():
     results.append(p.returncode == 0 and "سجل محاولات الإصلاح" in p.stdout)
     print(f"{'OK  ' if results[-1] else 'FAIL'} report generated")
     shutil.rmtree(T, ignore_errors=True)
+    results += unit_results
     passed = sum(results)
     print(f"\nLOOP SELFTEST: {'PASSED' if passed == len(results) else 'FAILED'} ({passed}/{len(results)})")
     return 0 if passed == len(results) else 1
