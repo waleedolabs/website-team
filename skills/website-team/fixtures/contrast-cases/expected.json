@@ -1,0 +1,14 @@
+{
+ "note": "Contrast regression cases (issue 1 of the 0.1.0 verification). Only listed checks are compared.",
+ "expected": {
+  "contrast:alpha-ok.html": "pass",
+  "contrast:alpha-bad.html": "fail",
+  "contrast:text-alpha.html": "fail",
+  "contrast:gradient.html": "pass",
+  "contrast:gradient-bad.html": "fail",
+  "contrast:image-bg.html": "pass"
+ },
+ "detail_contains": {
+  "contrast:image-bg.html": "1 over images not judged"
+ }
+}

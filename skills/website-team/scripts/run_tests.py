@@ -145,27 +145,50 @@ TAG_JS = """(i) => {
 }"""
 
 CONTRAST_JS = """() => {
-  const parse = c => (c.match(/[\\d.]+/g) || []).map(Number);
+  // Effective colours are computed by alpha-compositing every background layer from the root down
+  // to the element (semi-transparent colours are blended, not treated as solid). Gradients are
+  // judged against each colour stop (worst case). Text over url() images cannot be judged.
+  const parse = c => { const m = c && c.match(/rgba?\\(([^)]+)\\)/); if (!m) return null;
+    const p = m[1].split(/[\\s,\\/]+/).filter(Boolean).map(Number);
+    return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1]; };
+  const blend = (top, base) => [0,1,2].map(i => top[i]*top[3] + base[i]*(1-top[3]));
   const lum = ([r,g,b]) => { const f = v => { v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); };
                              return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b); };
-  const bgOf = el => { while (el) { const p = parse(getComputedStyle(el).backgroundColor);
-      if (p.length >= 3 && !(p.length === 4 && p[3] === 0)) return p.slice(0,3); el = el.parentElement; }
-    return [255,255,255]; };
+  const ratio = (a, b) => { const l1 = lum(a), l2 = lum(b); return (Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05); };
+  const bases = el => {           // possible effective background colours behind el, or null = unknown
+    const chain = []; for (let n = el; n && n.nodeType === 1; n = n.parentElement) chain.unshift(n);
+    let set = [[255,255,255]];
+    for (const n of chain) {
+      const cs = getComputedStyle(n);
+      const bc = parse(cs.backgroundColor);
+      if (bc && bc[3] > 0) set = set.map(b => blend(bc, b));
+      const bi = cs.backgroundImage;
+      if (bi && bi !== 'none') {
+        if (bi.includes('url(')) return null;
+        const stops = (bi.match(/rgba?\\([^)]+\\)/g) || []).map(parse).filter(Boolean);
+        if (!stops.length) return null;
+        const next = []; for (const b of set) for (const st of stops) next.push(blend(st, b));
+        set = next;
+      }
+    }
+    return set;
+  };
   const out = [];
   document.querySelectorAll('body *').forEach(el => {
     if (['SCRIPT','STYLE','NOSCRIPT','svg'].includes(el.tagName)) return;
     const cs = getComputedStyle(el);
     if (cs.visibility === 'hidden' || cs.display === 'none') return;
-    if (getComputedStyle(el).backgroundImage !== 'none') return;  // cannot judge text over images
     const hasText = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
     if (!hasText) return;
-    const fg = parse(cs.color).slice(0,3), bg = bgOf(el);
-    const l1 = lum(fg), l2 = lum(bg);
-    const ratio = (Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05);
+    const selector = el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\\s+/).join('.') : '');
+    const text = el.textContent.trim().slice(0, 40);
+    const fg = parse(cs.color), bs = bases(el);
+    if (!fg || !bs) { out.push({selector, text, judged: false}); return; }
+    let worst = Infinity;
+    for (const b of bs) worst = Math.min(worst, ratio(blend(fg, b), b));
     const size = parseFloat(cs.fontSize), bold = parseInt(cs.fontWeight) >= 700;
     const need = (size >= 24 || (size >= 18.66 && bold)) ? 3 : 4.5;
-    out.push({selector: el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.split(' ').join('.') : ''),
-              text: el.textContent.trim().slice(0, 40), ratio: Math.round(ratio*100)/100, need, ok: ratio >= need});
+    out.push({selector, text, judged: true, ratio: Math.round(worst*100)/100, need, ok: worst >= need});
   });
   return out;
 }"""
@@ -286,9 +309,12 @@ def check_page(cx, base, page_name, results, skip, form_setup=None):
             if local:
                 add(row(f"img:{P}", f"{P}: local images load", "fail" if broken else "pass",
                         f"{len(broken)} of {len(local)} local images failed to load", broken or None))
-        bad = [c for c in contrast if not c["ok"]]
+        judged = [c for c in contrast if c["judged"]]
+        unjudged = [c for c in contrast if not c["judged"]]
+        bad = [c for c in judged if not c["ok"]]
+        note = f"; {len(unjudged)} over images not judged" if unjudged else ""
         add(row(f"contrast:{P}", f"{P}: text contrast meets WCAG AA", "fail" if bad else "pass",
-                f"{len(bad)} of {len(contrast)} text elements below threshold", bad[:8] or None))
+                f"{len(bad)} of {len(judged)} text elements below threshold{note}", bad[:8] or None))
         add(row(f"labels:{P}", f"{P}: form fields have labels", "fail" if unlabeled else "pass",
                 f"{len(unlabeled)} fields without an accessible label", unlabeled or None))
     safe(f"static:{P}", f"{P}: static checks", static)

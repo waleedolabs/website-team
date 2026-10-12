@@ -16,6 +16,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from wt_common import apply_ops, reverse_ops, run_once, run_suite  # noqa: E402
 
 FIX = Path(__file__).parent.parent / "fixtures"
+# fixtures whose expected.json lists exact statuses for specific checks (regression guards)
+LISTED_FIXTURES = ["contrast-cases"]
 
 
 def bad(res):
@@ -93,6 +95,21 @@ def main():
             diffs = [f"{label} {k}: got {got.get(k)} expected {v}" for k, v in sx[label].items() if got.get(k) != v]
             print(f"T5 scenarios ({label} shop): {len(sx[label]) - len(diffs)}/{len(sx[label])} as expected")
             problems += [f"T5 {d_}" for d_ in diffs]
+
+    # T6: regression fixtures with listed expectations (each guards a bug found during verification)
+    for name in LISTED_FIXTURES:
+        d = FIX / name
+        spec = json.loads((d / "expected.json").read_text(encoding="utf-8"))
+        res = run_suite(d, n=1 if quick else 2)["results"]
+        diffs = []
+        for k, v in spec["expected"].items():
+            got = res.get(k)
+            if got is None or got["status"] != v:
+                diffs.append(f"{name} {k}: got {got['status'] if got else 'missing'} expected {v}")
+            elif spec.get("detail_contains", {}).get(k, "") not in got["detail"]:
+                diffs.append(f"{name} {k}: detail {got['detail']!r} lacks {spec['detail_contains'][k]!r}")
+        print(f"T6 {name}: {len(spec['expected']) - len(diffs)}/{len(spec['expected'])} as expected")
+        problems += [f"T6 {d_}" for d_ in diffs]
 
     shutil.rmtree(work, ignore_errors=True)
     print("\nSELFTEST:", "PASSED" if not problems else "FAILED")
