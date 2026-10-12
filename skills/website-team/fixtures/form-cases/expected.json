@@ -1,0 +1,32 @@
+{
+ "note": "Regression cases for issue 5 (generic form check could not represent a cross-page cart or strict validation) and for already-active toggle buttons. Only listed checks are compared.",
+ "expected": {
+  "form:checkout.html:#checkout": "pass",
+  "scenario:cross-page-order": "pass",
+  "btn:shop.html:#all": "pass",
+  "btn:shop.html:#noop": "needs_review"
+ },
+ "detail_contains": {
+  "btn:shop.html:#all": "already active"
+ },
+ "variants": [
+  {
+   "remove": [
+    "form_values"
+   ],
+   "expected": {
+    "form:checkout.html:#checkout": "needs_review"
+   },
+   "why": "without realistic values the strict address validation blocks the submit: must NOT pass"
+  },
+  {
+   "remove": [
+    "form_setup"
+   ],
+   "expected": {
+    "form:checkout.html:#checkout": "needs_review"
+   },
+   "why": "without putting an item in the cart the order is (correctly) refused: must NOT pass"
+  }
+ ]
+}

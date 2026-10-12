@@ -1,0 +1,20 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Checkout</title></head>
+<body><h1>Checkout</h1>
+<form id="checkout">
+  <label>Name <input name="name" required></label>
+  <label>Address <textarea name="address" required></textarea></label>
+  <button type="submit">Place order</button>
+</form>
+<p id="msg" role="status"></p>
+<script>
+document.getElementById('checkout').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = document.getElementById('msg');
+  const cart = JSON.parse(localStorage.getItem('cart') || '{}');
+  if (!Object.keys(cart).length) { msg.textContent = 'Your cart is empty'; return; }
+  const f = new FormData(e.target);
+  if ((f.get('address') || '').length < 15) { msg.textContent = 'Please enter a detailed address'; return; }
+  const r = await fetch('/api/order', {method: 'POST', body: JSON.stringify({cart, address: f.get('address')})});
+  msg.textContent = r.ok ? 'Order placed' : 'Order failed';
+});
+</script></body></html>

@@ -17,7 +17,7 @@ from wt_common import apply_ops, reverse_ops, run_once, run_suite  # noqa: E402
 
 FIX = Path(__file__).parent.parent / "fixtures"
 # fixtures whose expected.json lists exact statuses for specific checks (regression guards)
-LISTED_FIXTURES = ["contrast-cases"]
+LISTED_FIXTURES = ["contrast-cases", "form-cases"]
 
 
 def bad(res):
@@ -108,7 +108,22 @@ def main():
                 diffs.append(f"{name} {k}: got {got['status'] if got else 'missing'} expected {v}")
             elif spec.get("detail_contains", {}).get(k, "") not in got["detail"]:
                 diffs.append(f"{name} {k}: detail {got['detail']!r} lacks {spec['detail_contains'][k]!r}")
-        print(f"T6 {name}: {len(spec['expected']) - len(diffs)}/{len(spec['expected'])} as expected")
+        for var in spec.get("variants", []):   # same fixture with parts of the test contract removed
+            vd = work / f"{name}-variant"
+            if vd.exists():
+                shutil.rmtree(vd)
+            shutil.copytree(d, vd)
+            cfg = json.loads((vd / "site-tests.json").read_text(encoding="utf-8"))
+            for k in var["remove"]:
+                cfg.pop(k, None)
+            (vd / "site-tests.json").write_text(json.dumps(cfg), encoding="utf-8")
+            vres = run_suite(vd, n=1)["results"]
+            for k, v in var["expected"].items():
+                got = vres.get(k, {}).get("status", "missing")
+                if got != v:
+                    diffs.append(f"{name} without {var['remove']}: {k} got {got} expected {v} ({var['why']})")
+        n_total = len(spec["expected"]) + sum(len(v["expected"]) for v in spec.get("variants", []))
+        print(f"T6 {name}: {n_total - len(diffs)}/{n_total} as expected")
         problems += [f"T6 {d_}" for d_ in diffs]
 
     shutil.rmtree(work, ignore_errors=True)

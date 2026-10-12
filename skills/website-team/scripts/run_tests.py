@@ -10,7 +10,9 @@ Optional config: SITE_DIR/site-tests.json
     "pages": ["index.html", "menu.html"],     # default: every *.html file (max 20)
     "skip": ["contrast:"],                    # check-id prefixes to skip (reported as not_run)
     "scenarios": [ ... ],                     # custom behaviour checks, see references/scenarios.md
-    "form_setup": {"#order-form": [{"click": ".add"}]}   # preconditions before the generic form check
+    "form_setup": {"#order-form": [{"click": ".add"}]},  # preconditions before the generic form check
+                                                         # (may 'visit' other pages; the form page is reopened)
+    "form_values": {"#order-form": {"address": "..."}}   # realistic values for fields with strict validation
   }
 
 Reliability rules:
@@ -229,8 +231,28 @@ FILL_JS = """(formIndex) => {
 }"""
 
 
+SET_VALUES_JS = """([formIndex, values]) => {
+  const f = document.querySelectorAll('form')[formIndex]; const missing = [];
+  for (const [name, v] of Object.entries(values)) {
+    const els = [...f.elements].filter(e => e.name === name);
+    if (!els.length) { missing.push(name); continue; }
+    for (const e of els) {
+      const t = (e.type || '').toLowerCase();
+      if (t === 'checkbox') e.checked = !!v;
+      else if (t === 'radio') e.checked = (e.value === String(v));
+      else e.value = String(v);
+      e.dispatchEvent(new Event('input', {bubbles: true})); e.dispatchEvent(new Event('change', {bubbles: true}));
+    }
+  }
+  return missing;
+}"""
+
+INVALID_JS = """(formIndex) => [...document.querySelectorAll('form')[formIndex].elements]
+  .filter(e => e.willValidate && !e.checkValidity()).map(e => e.name || e.id || e.tagName)"""
+
+
 # ------------------------------------------------------------------ page-level checks
-def check_page(cx, base, page_name, results, skip, form_setup=None):
+def check_page(cx, base, page_name, results, skip, form_setup=None, form_values=None):
     url = urljoin(base, page_name)
     P = page_name
 
@@ -381,6 +403,9 @@ def check_page(cx, base, page_name, results, skip, form_setup=None):
                     page.goto(url)
                     page.wait_for_timeout(150)
                     page.evaluate(TAG_JS, c["i"])
+                    active = page.evaluate("""() => { const e = document.querySelector('[data-wt-target]');
+                        return ['aria-pressed', 'aria-selected', 'aria-checked'].some(a => e.getAttribute(a) === 'true')
+                               || (e.getAttribute('aria-current') || 'false') !== 'false'; }""")
                     before = page.evaluate(SNAPSHOT_JS)
                     page.click("[data-wt-target]")
                     page.wait_for_timeout(400)
@@ -394,6 +419,8 @@ def check_page(cx, base, page_name, results, skip, form_setup=None):
                     add(row(cid, name, "fail", f"click navigated to a broken page (HTTP {nav_status})", after[0]))
                 elif before != after or popups:
                     add(row(cid, name, "pass", "click produced an observable change"))
+                elif active:
+                    add(row(cid, name, "pass", "already active (aria-pressed/selected/current) so no change is expected"))
                 else:
                     add(row(cid, name, "needs_review", "no error, but the click changed nothing observable"))
             except Exception as e:
@@ -423,8 +450,19 @@ def check_page(cx, base, page_name, results, skip, form_setup=None):
                             add(row(f"form:{P}:#{fid}", f"{P}: form #{fid} submits", "fail",
                                     "declared precondition could not run", problem))
                             continue
+                        if page.url.split("#")[0] != url.split("#")[0]:
+                            page.goto(url)  # setup visited other pages: come back to the form page
+                            page.wait_for_timeout(150)
                         reqs.clear()
                     meta = page.evaluate(FILL_JS, fi)
+                    values = (form_values or {}).get(f"#{fid}") if fid else None
+                    if values:
+                        missing = page.evaluate(SET_VALUES_JS, [fi, values])
+                        if missing:
+                            add(row(f"form:{P}:#{fid}", f"{P}: form #{fid} submits", "fail",
+                                    "declared form value refers to a field that does not exist", missing))
+                            continue
+                        meta["invalid"] = page.evaluate(INVALID_JS, fi)
                     if meta["id"]:
                         cid = f"form:{P}:#{meta['id']}"
                     name = f"{P}: form {cid.split(':', 2)[2]} submits"
@@ -481,7 +519,7 @@ def check_page(cx, base, page_name, results, skip, form_setup=None):
 
 
 # ------------------------------------------------------------------ custom scenarios
-STEP_KEYS = {"click", "fill", "select", "submit", "double_submit", "wait", "check"}
+STEP_KEYS = {"click", "fill", "select", "submit", "double_submit", "wait", "check", "visit"}
 EXPECT_KEYS = {"request", "no_request", "text", "count_visible", "body", "no_js_error", "visible", "hidden"}
 
 
@@ -513,14 +551,22 @@ def validate_scenario(sc):
     return errs
 
 
+SIMPLE_STEPS = ("click", "fill", "select", "check", "wait", "visit")
+
+
 def do_simple_steps(page, steps):
-    """Run click/fill/select/check/wait steps. Returns None or a failure message (missing/unusable element)."""
+    """Run click/fill/select/check/wait/visit steps. Returns None or a failure message (missing/unusable element).
+    'visit' opens another page of the site in the same browser session (cookies/localStorage are kept)."""
     for n_step, st in enumerate(steps, 1):
-        key = next((k for k in st if k in ("click", "fill", "select", "check", "wait")), None)
+        key = next((k for k in st if k in SIMPLE_STEPS), None)
         if key is None:
             raise ValueError(f"unsupported setup step: {st}")
         if key == "wait":
             page.wait_for_timeout(int(st["wait"]))
+            continue
+        if key == "visit":
+            page.goto(urljoin(page.url, st["visit"]))
+            page.wait_for_timeout(150)
             continue
         sel = st[key]
         if page.locator(sel).count() == 0:
@@ -582,6 +628,10 @@ def run_scenario(cx, base, sc):
                                    f"(hidden, covered or disabled): {sel}", [str(ex).splitlines()[0][:160]])
                     raise
                 if key in ("click", "fill", "select", "check"):
+                    continue
+                if key == "visit":
+                    page.goto(urljoin(page.url, st["visit"]))
+                    page.wait_for_timeout(150)
                     continue
                 if "wait" in st:
                     page.wait_for_timeout(int(st["wait"]))
@@ -696,7 +746,7 @@ def run(site_dir, shots=None, shots_only=False):
             results.append(row("site", "site has HTML pages", "fail", "no .html files found"))
         for pg in pages:
             if not shots_only:
-                check_page(cx, base, pg, results, skip, cfg.get("form_setup", {}))
+                check_page(cx, base, pg, results, skip, cfg.get("form_setup", {}), cfg.get("form_values", {}))
         if not shots_only:
             for sc in cfg.get("scenarios", []):
                 results.append(run_scenario(cx, base, sc))

@@ -234,9 +234,9 @@ def cmd_add_check(a):
         sys.exit("ERROR: run 'init' first")
     state = load(work / "state.json")
     docs = [load(f) for f in a.scenario]
-    if any("form_setup" in d for d in docs):
+    if any("form_setup" in d or "form_values" in d for d in docs):
         if len(docs) != 1:
-            sys.exit("CHECK REJECTED: add a form_setup amendment on its own, not together with scenarios")
+            sys.exit("CHECK REJECTED: add a form amendment (form_setup/form_values) on its own, not together with scenarios")
         return amend_form_setup(site, work, state, docs[0])
     scs = docs
     if tree_hash(site) != state["tree_hash"]:
@@ -325,26 +325,38 @@ def cmd_add_check(a):
 
 
 def amend_form_setup(site, work, state, doc):
-    """Add a precondition for the generic check of one form (e.g. 'put an item in the cart first').
-    Only adds; may not replace an existing setup. The affected check must give a stable pass/fail
-    and no other check may change. Logged visibly as a test-contract amendment."""
+    """Amend the test contract for the generic check of ONE form:
+      form_setup  : steps to run first (e.g. put an item in the cart, possibly on another page via 'visit')
+      form_values : realistic values for named fields that have strict validation
+    Only adds; never replaces an existing declaration. Requires a reason. The affected check must give a
+    stable pass/fail and no other check may change. Logged visibly as a test-contract amendment."""
     log = read_log(work)
-    (key, steps), = doc["form_setup"].items()
-    affected = [i for i in state["results"] if i.startswith("form:") and i.endswith(":" + key)]
-    entry = {"attempt": len(log) + 1, "at": now(), "kind": "add-check", "title": f"precondition for form {key}",
+    keys = set(doc.get("form_setup", {})) | set(doc.get("form_values", {}))
+    title_key = next(iter(keys)) if keys else "?"
+    affected = [i for i in state["results"] if i.startswith("form:") and i.endswith(":" + title_key)]
+    parts = [k for k in ("form_setup", "form_values") if k in doc]
+    entry = {"attempt": len(log) + 1, "at": now(), "kind": "add-check",
+             "title": f"{' + '.join('precondition' if k == 'form_setup' else 'field values' for k in parts)} for form {title_key}",
              "rationale": doc.get("reason", ""), "source": doc.get("source", ""), "targets": affected, "ops": [],
-             "form_setup": doc["form_setup"], "counted": False, "version_before": state["version"]}
+             **{k: doc[k] for k in parts}, "counted": False, "version_before": state["version"]}
 
     def reject(reason):
         entry.update(decision="rejected", reason=reason)
         log_decision(work, entry)
         sys.exit(f"CHECK REJECTED: {reason}")
 
+    if len(keys) != 1:
+        reject("an amendment must target exactly one form (the same key in form_setup and form_values)")
+    key = title_key
     if not doc.get("reason"):
-        reject("a precondition needs a 'reason' (it is shown in the report)")
-    if not isinstance(steps, list) or not steps or any(
-            len([k for k in st if k in ("click", "fill", "select", "check", "wait")]) != 1 for st in steps):
-        reject("steps must be a non-empty list of click/fill/select/check/wait steps")
+        reject("an amendment needs a 'reason' (it is shown in the report)")
+    steps = doc.get("form_setup", {}).get(key)
+    if steps is not None and (not isinstance(steps, list) or not steps or any(
+            len([k for k in st if k in ("click", "fill", "select", "check", "wait", "visit")]) != 1 for st in steps)):
+        reject("form_setup steps must be a non-empty list of click/fill/select/check/wait/visit steps")
+    values = doc.get("form_values", {}).get(key)
+    if values is not None and (not isinstance(values, dict) or not values):
+        reject("form_values must map field names to values")
     if not affected:
         reject(f"no generic form check matches {key}")
     if tree_hash(site) != state["tree_hash"]:
@@ -355,10 +367,13 @@ def amend_form_setup(site, work, state, doc):
     shutil.copytree(site, cand)
     cfg_p = cand / "site-tests.json"
     cfg = json.loads(cfg_p.read_text(encoding="utf-8")) if cfg_p.exists() else {}
-    if key in cfg.get("form_setup", {}):
-        shutil.rmtree(cand)
-        reject(f"{key} already has a precondition (preconditions can only be added, never replaced)")
-    cfg.setdefault("form_setup", {})[key] = steps
+    for part, val in (("form_setup", steps), ("form_values", values)):
+        if val is None:
+            continue
+        if key in cfg.get(part, {}):
+            shutil.rmtree(cand)
+            reject(f"{key} already has {part} (declarations can only be added, never replaced)")
+        cfg.setdefault(part, {})[key] = val
     cfg_p.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     after = run_suite(cand)
     changed = [i for i, r in after["results"].items()
@@ -374,11 +389,11 @@ def amend_form_setup(site, work, state, doc):
     snapshot(site, work / "versions" / f"v{version}")
     save(work / "state.json", {"version": version, "at": now(), **after, "tree_hash": tree_hash(site)})
     moves = {i: f"{state['results'][i]['status']} -> {after['results'][i]['status']}" for i in affected}
-    entry.update(decision="contract-amended", reason=f"precondition added; {moves}", version_after=version,
+    entry.update(decision="contract-amended", reason=f"{' + '.join(parts)} added; {moves}", version_after=version,
                  initial_status=after["results"][affected[0]]["status"],
                  others_unchanged=len([i for i in after["results"] if i not in affected]))
     log_decision(work, entry)
-    print(f"PRECONDITION ADDED for {key} -> v{version}: {moves}")
+    print(f"CONTRACT AMENDED ({' + '.join(parts)}) for {key} -> v{version}: {moves}")
 
 
 def cmd_status(a):
