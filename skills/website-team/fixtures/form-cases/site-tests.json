@@ -1,9 +1,57 @@
-{"backend": {"POST /api/order": 200},
- "form_setup": {"#checkout": [{"visit": "shop.html"}, {"click": "#add"}]},
- "form_values": {"#checkout": {"address": "12 King Fahd Road, Al Olaya, Riyadh"}},
+{
+ "backend": {
+  "POST /api/order": 200,
+  "POST /api/booking": 200
+ },
+ "form_setup": {
+  "#checkout": [
+   {
+    "visit": "shop.html"
+   },
+   {
+    "click": "#add"
+   }
+  ]
+ },
+ "form_values": {
+  "#checkout": {
+   "address": "12 King Fahd Road, Al Olaya, Riyadh"
+  }
+ },
  "scenarios": [
-  {"id": "cross-page-order", "page": "shop.html", "desc": "add on shop page, order on checkout page",
-   "steps": [{"click": "#add"}, {"visit": "checkout.html"}, {"fill": "input[name=name]", "value": "Sara"},
-             {"fill": "textarea[name=address]", "value": "12 King Fahd Road, Riyadh"}, {"submit": "#checkout"}],
-   "expect": [{"request": "POST /api/order", "count": 1}, {"text": "#msg", "contains": "placed"}]}
- ]}
+  {
+   "id": "cross-page-order",
+   "page": "shop.html",
+   "desc": "add on shop page, order on checkout page",
+   "steps": [
+    {
+     "click": "#add"
+    },
+    {
+     "visit": "checkout.html"
+    },
+    {
+     "fill": "input[name=name]",
+     "value": "Sara"
+    },
+    {
+     "fill": "textarea[name=address]",
+     "value": "12 King Fahd Road, Riyadh"
+    },
+    {
+     "submit": "#checkout"
+    }
+   ],
+   "expect": [
+    {
+     "request": "POST /api/order",
+     "count": 1
+    },
+    {
+     "text": "#msg",
+     "contains": "placed"
+    }
+   ]
+  }
+ ]
+}

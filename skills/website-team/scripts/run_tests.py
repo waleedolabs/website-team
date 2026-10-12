@@ -223,6 +223,16 @@ LABELS_JS = """() => {
 FILL_JS = """(formIndex) => {
   const f = document.querySelectorAll('form')[formIndex];
   const radios = {};
+  // dates are relative to the day the test runs (a fixed date silently becomes "in the past"),
+  // then clamped to the field's own min/max
+  const pad = n => String(n).padStart(2, '0');
+  const fut = new Date(Date.now() + 30 * 864e5);
+  const isoDay = fut.getFullYear() + '-' + pad(fut.getMonth() + 1) + '-' + pad(fut.getDate());
+  const isoWeek = (() => { const d = new Date(Date.UTC(fut.getFullYear(), fut.getMonth(), fut.getDate()));
+    const day = d.getUTCDay() || 7; d.setUTCDate(d.getUTCDate() + 4 - day);
+    const y0 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return d.getUTCFullYear() + '-W' + pad(Math.ceil(((d - y0) / 864e5 + 1) / 7)); })();
+  const clamp = (e, v) => { if (e.min && v < e.min) v = e.min; if (e.max && v > e.max) v = e.max; return v; };
   [...f.elements].forEach(e => {
     const t = (e.type || '').toLowerCase();
     if (e.disabled || ['hidden','submit','button','reset','image','file'].includes(t)) return;
@@ -230,8 +240,9 @@ FILL_JS = """(formIndex) => {
     if (t === 'checkbox') { e.checked = true; return; }
     if (t === 'radio') { if (!radios[e.name]) { e.checked = true; radios[e.name] = 1; } return; }
     const v = {email: 'test@example.com', tel: '0500000000', number: (e.min || '1'), url: 'https://example.com',
-               date: '2026-01-15', time: '10:00', 'datetime-local': '2026-01-15T10:00', password: 'Test1234!',
-               month: '2026-01', week: '2026-W03', color: '#336699', range: (e.min || '1')}[t];
+               date: clamp(e, isoDay), time: clamp(e, '10:00'), 'datetime-local': clamp(e, isoDay + 'T10:00'),
+               password: 'Test1234!', month: clamp(e, isoDay.slice(0, 7)), week: clamp(e, isoWeek),
+               color: '#336699', range: (e.min || '1')}[t];
     e.value = v !== undefined ? v : (e.tagName === 'TEXTAREA' ? 'Test message' : 'Test');
     e.dispatchEvent(new Event('input', {bubbles: true})); e.dispatchEvent(new Event('change', {bubbles: true}));
   });

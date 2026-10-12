@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+Found by the interactive verification of 0.2.0 (two installed-plugin runs: dental clinic, wedding photographer).
+- **Generic form check used a fixed date (2026-01-15) that had become past**, so a site that correctly refuses past dates looked broken (it caused a rejected fix in the photographer run). Dates are now relative to the day the test runs (+30 days) and clamped to the field's min/max. Fixture `form-cases/booking.html`: 0.2.0 needs_review, 0.2.1 pass.
+- **Direction prototypes were shown without being tested** (the clinic's direction B scrolled sideways on mobile, 470 px on a 375 px screen, unnoticed). Step 2 now tests every prototype, fixes obvious breakage before showing it, and discloses what remains.
+- **The self-test log was kept outside the project** (a temporary folder), so a later turn could not find it. It now goes to `logs/selftest.log` and its result into `STATUS.md`.
+
 ## 0.2.0
 Fixes for the six problems found when verifying 0.1.0 as an installed plugin. Each fix comes with a test that fails on 0.1.0 and passes now.
 

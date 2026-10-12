@@ -1,0 +1,19 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Booking</title></head>
+<body><h1>Book a date</h1>
+<form id="booking">
+  <label>Event date <input type="date" name="date" required></label>
+  <label>Event month <input type="month" name="month"></label>
+  <button type="submit">Request booking</button>
+</form>
+<p id="bmsg" role="status"></p>
+<script>
+  // the site (correctly) refuses past dates: min is today, computed at load time
+  const today = new Date().toISOString().slice(0, 10);
+  document.querySelector('input[name=date]').min = today;
+  document.querySelector('input[name=month]').min = today.slice(0, 7);
+  document.getElementById('booking').addEventListener('submit', async e => {
+    e.preventDefault();
+    const r = await fetch('/api/booking', {method: 'POST', body: new FormData(e.target)});
+    document.getElementById('bmsg').textContent = r.ok ? 'Requested' : 'Failed';
+  });
+</script></body></html>

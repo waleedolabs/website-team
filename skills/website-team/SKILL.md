@@ -42,7 +42,8 @@ Keep `STATUS.md` in the project folder updated at every step: current step, what
 Create one project folder (ask where if the user has a preference, else `./website-team-<short-name>/`):
 
 ```
-STATUS.md                current step / waiting for
+STATUS.md                current step / waiting for / selftest result
+logs/                    selftest and long-running command logs
 brief.md                 project understanding + assumptions + user answers
 directions/A|B|C/        three direction prototypes (+ shots/)
 site/                    THE site being built, tested and fixed (only thing the loop changes)
@@ -58,7 +59,7 @@ REPORT.md                final report
 
 Run `python3 scripts/check_env.py`. If NOT READY, run the printed setup commands, then re-check. If it still fails, tell the user plainly that real testing is unavailable here; continue only with design work and mark every technical check as not_run.
 
-On first use in an environment, run `python3 scripts/selftest.py --quick` (about 3 minutes). It proves the tests have no false alarms, catch known bugs one by one, handle tricky cases and regression cases, run scenarios correctly, and that the committee validator works. If it FAILS, tell the user the tests cannot be trusted here and do not present test results as verified. `python3 scripts/selftest_loop.py` (about 3 minutes) proves every accept/reject rule of the fix loop; run it when the user asks for full verification.
+On first use in an environment, run `python3 scripts/selftest.py --quick` (about 3 minutes), writing its output to `logs/selftest.log` in the project folder (create `logs/`) and recording the result line in `STATUS.md`; if it runs in the background while you wait for the user, read that log before Step 3. It proves the tests have no false alarms, catch known bugs one by one, handle tricky cases and regression cases, run scenarios correctly, and that the committee validator works. If it FAILS, tell the user the tests cannot be trusted here and do not present test results as verified. `python3 scripts/selftest_loop.py` (about 3 minutes) proves every accept/reject rule of the fix loop; run it when the user asks for full verification.
 
 Commands that take longer than a few minutes (selftests, init on big sites): if your shell tool has a time limit, run them in the background with output to a log file and poll the log.
 
@@ -70,7 +71,9 @@ Extract from the request: business type, goal of the site (e.g. visits to a phys
 
 Create three directions that differ in **strategy**, not just colours: each a different way to reach the goal (for example product-first, brand/story-first, fastest-path-to-action). Name each direction's bet and which audience/goal it serves best.
 
-Build each as a lean, self-contained `directions/X/index.html` (inline CSS/JS, system or local fonts, local or placeholder images, no CDN frameworks: tests run isolated from the internet and would otherwise test an unstyled page). Screenshots: `python3 scripts/run_tests.py directions/A --shots directions/A/shots --shots-only` (repeat for B, C). Show them to the user (send the image files if you can; otherwise give their paths). → Checkpoint 2. When merging, keep one coherent visual system.
+Build each as a lean, self-contained `directions/X/index.html` (inline CSS/JS, system or local fonts, local or placeholder images, no CDN frameworks: tests run isolated from the internet and would otherwise test an unstyled page). Give each direction the same `site-tests.json` backend you plan for the site, so forms are not reported as broken only because the prototype has no endpoint.
+
+**Test each prototype before showing it:** `python3 scripts/run_tests.py directions/A --shots directions/A/shots --out directions/A/health.json` (repeat for B, C). Fix obvious breakage first (horizontal scroll on mobile, unreadable contrast, JS errors, broken links): a direction must not be judged on a bug. Anything you leave unfixed is named in that direction's pitch as a known issue. Then show the three directions with screenshots, a 2–3 line pitch and a one-line health note each (send the image files if you can; otherwise give their paths). → Checkpoint 2. When merging or revising, test the new prototype the same way and stop again until the user approves. When merging, keep one coherent visual system.
 
 ## Step 3: Build the site, then freeze the baseline
 

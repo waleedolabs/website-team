@@ -1,10 +1,11 @@
 {
- "note": "Regression cases for issue 5 (generic form check could not represent a cross-page cart or strict validation) and for already-active toggle buttons. Only listed checks are compared.",
+ "note": "Regression cases for issue 5 (generic form check could not represent a cross-page cart or strict validation) and for already-active toggle buttons. Only listed checks are compared. booking.html: generic fill must use dates in the future (relative to the day the test runs) and respect min/max; 0.2.0 used the fixed date 2026-01-15.",
  "expected": {
   "form:checkout.html:#checkout": "pass",
   "scenario:cross-page-order": "pass",
   "btn:shop.html:#all": "pass",
-  "btn:shop.html:#noop": "needs_review"
+  "btn:shop.html:#noop": "needs_review",
+  "form:booking.html:#booking": "pass"
  },
  "detail_contains": {
   "btn:shop.html:#all": "already active"
