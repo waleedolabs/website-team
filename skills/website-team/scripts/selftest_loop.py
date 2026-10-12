@@ -168,6 +168,14 @@ def main():
         prop("fv1", {"form_values": {"#contact-form": {"name": "Sara"}}, "reason": "realistic name"})], reason="CONTRACT AMENDED")
     run("replacing existing form_values -> rejected", 1, ["add-check", *S, *W, "--scenario",
         prop("fv2", {"form_values": {"#contact-form": {"name": "Other"}}, "reason": "try to replace"})], reason="never replaced")
+    # deterministic audit: clean project so far (every version replays from the log)
+    A_ = [sys.executable, str(HERE / "audit_project.py"), str(T)]
+    pa = subprocess.run(A_, capture_output=True, text=True, timeout=600)
+    ok = pa.returncode == 0 and "AUDIT: CLEAN" in pa.stdout
+    results.append(ok)
+    print(f"{'OK  ' if ok else 'FAIL'} audit_project: clean project -> CLEAN")
+    if not ok:
+        print("     " + pa.stdout[-600:])
     # outside edits and caps
     with open(site / "index.html", "a", encoding="utf-8") as f:
         f.write("<!-- manual edit -->")
@@ -179,6 +187,10 @@ def main():
             "targets": ["contrast:index.html"], "ops": [R("color: #e8dccb;", f"color: #d{n}cdb9;")]}))
     run("4th attempt on the same target -> refused by cap", 1, tr("real", {"title": "real contrast fix", "kind": "fix",
         "targets": ["contrast:index.html"], "ops": [R("color: #e8dccb;", "color: #5c4a3a;")]}), reason='attempt cap reached for contrast')
+    pa = subprocess.run(A_, capture_output=True, text=True, timeout=600)
+    ok = pa.returncode == 1 and "outside the loop or unknown" in pa.stdout
+    results.append(ok)
+    print(f"{'OK  ' if ok else 'FAIL'} audit_project: change made outside the loop is flagged")
     text = (site / "index.html").read_text(encoding="utf-8")
     leaked = any(x in text for x in ("display:none", "#d9cdb9", "#nowhere", "#d1cdb9", "#d2cdb9"))
     results.append(not leaked)

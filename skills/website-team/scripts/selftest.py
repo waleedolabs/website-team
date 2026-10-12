@@ -126,6 +126,54 @@ def main():
         print(f"T6 {name}: {n_total - len(diffs)}/{n_total} as expected")
         problems += [f"T6 {d_}" for d_ in diffs]
 
+    # T7: committee validator (no browser): a valid committee passes; each violation is caught
+    import subprocess
+    vc = [sys.executable, str(Path(__file__).parent / "validate_committee.py")]
+    good = FIX / "committee-cases" / "good"
+
+    def mutated(name, fn):
+        d = work / f"committee-{name}"
+        if d.exists():
+            shutil.rmtree(d)
+        shutil.copytree(good, d)
+        fn(d)
+        return d
+
+    def edit(path, old, new):
+        path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+
+    def plan_edit(d, f):
+        pj = d / "committee" / "plan.json"
+        plan = json.loads(pj.read_text(encoding="utf-8"))
+        f(plan)
+        pj.write_text(json.dumps(plan), encoding="utf-8")
+
+    cases = [
+        ("valid committee", lambda d: None, 0),
+        ("report saved as a condensed copy", lambda d: edit(d / "committee" / "critic.md", "## Findings", "(نسخة مختصرة من تقرير الناقد — ليست حرفية)\\n## Findings"), 1),
+        ("report not written by the member (no signature)", lambda d: edit(d / "committee" / "advocate.md", "<!-- website-team:site-advocate -->", ""), 1),
+        ("'proven' item on a passing check", lambda d: plan_edit(d, lambda p: p["items"][0].update(check_ids=["lang:index.html"])), 1),
+        ("fix item without check ids", lambda d: plan_edit(d, lambda p: p["items"][0].update(check_ids=[])), 1),
+        ("unknown check id in plan", lambda d: plan_edit(d, lambda p: p["items"][1].update(check_ids=["scenario:nope"])), 1),
+        ("committee member modified the site", lambda d: edit(d / "site" / "index.html", "</body>", "<!-- x --></body>"), 1),
+    ]
+    ok_n = 0
+    for name, fn, want in cases:
+        d = mutated(name.replace(" ", "-").replace("'", ""), fn)
+        rc = subprocess.run(vc + ["--project", str(d), "--quiet"], capture_output=True).returncode
+        ok = rc == want
+        ok_n += ok
+        if not ok:
+            problems.append(f"T7 {name}: exit {rc}, expected {want}")
+    d = mutated("manifest", lambda d: None)
+    subprocess.run(vc + ["--project", str(d), "--quiet"], capture_output=True)
+    edit(d / "committee" / "inspector.md", "INS-1", "INS-1 (edited later)")
+    rc = subprocess.run(vc + ["--project", str(d), "--verify-manifest"], capture_output=True).returncode
+    ok_n += rc == 1
+    if rc != 1:
+        problems.append("T7 later edit of a report not detected by --verify-manifest")
+    print(f"T7 committee validator: {ok_n}/{len(cases) + 1} as expected")
+
     shutil.rmtree(work, ignore_errors=True)
     print("\nSELFTEST:", "PASSED" if not problems else "FAILED")
     for p in problems:
