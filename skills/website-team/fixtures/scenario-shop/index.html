@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Shop</title></head>
+<body>
+<button id="add-a" type="button" class="add" data-p="10">Add A</button>
+<button id="add-b" type="button" class="add" data-p="5">Add B</button>
+<p>Items: <span id="count">0</span> Total: <span id="total">0</span></p>
+<form id="order">
+  <label>Name <input name="name"></label>
+  <button type="submit">Order</button>
+</form>
+<p id="msg"></p>
+<script>
+  let cart = [];
+  document.querySelectorAll('.add').forEach(b => b.addEventListener('click', () => {
+    cart.push(Number(b.dataset.p));
+    document.getElementById('count').textContent = cart.length;
+    document.getElementById('total').textContent = cart.reduce((a, x) => a + x, 0);
+  }));
+  document.getElementById('order').addEventListener('submit', async e => {
+    e.preventDefault();
+    const res = await fetch('/api/order', {method: 'POST', body: JSON.stringify({items: cart})});
+    document.getElementById('msg').textContent = res.ok ? 'Order received' : 'Order failed';
+  });
+</script>
+</body>
+</html>

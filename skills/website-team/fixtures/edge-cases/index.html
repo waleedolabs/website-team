@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edge cases</title>
+<style>
+  body { font-family: sans-serif; color: #222; background: #fff; }
+  #menu-panel { display: none; }
+  #menu-panel.open { display: block; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="#">Placeholder</a>
+  <a href="second.html">Second page</a>
+  <a href="https://example.com/">External</a>
+  <a href="#section-b">Section B</a>
+</nav>
+
+<button id="toggle" type="button" onclick="document.getElementById('menu-panel').classList.toggle('open')">Menu</button>
+<div id="menu-panel"><button id="hidden-btn" type="button" onclick="alert(1)">Inside hidden</button></div>
+<button id="noop" type="button">Does nothing</button>
+<button id="goto-missing" type="button" onclick="location.href='missing.html'">Go missing</button>
+
+<h2 id="section-b">Section B</h2>
+
+<!-- fake form: shows thanks, sends nothing -->
+<form id="fake-form" onsubmit="event.preventDefault(); document.getElementById('thanks').textContent='Thanks!';">
+  <label>Email <input type="email" name="email" required></label>
+  <button type="submit">Send</button>
+</form>
+<p id="thanks"></p>
+
+<!-- JS form posting to a declared endpoint with fetch -->
+<form id="fetch-form" onsubmit="event.preventDefault(); fetch('/api/subscribe', {method:'POST', body:new FormData(this)}).then(()=>document.getElementById('ok').textContent='Subscribed');">
+  <label>Name <input type="text" name="name" required></label>
+  <button type="submit">Subscribe</button>
+</form>
+<p id="ok"></p>
+
+<!-- form that reloads its own page -->
+<form id="self-form">
+  <label>Search <input type="text" name="q"></label>
+  <button type="submit">Search</button>
+</form>
+
+<!-- form that does nothing -->
+<form id="dead-form" onsubmit="event.preventDefault();">
+  <label>Phone <input type="tel" name="phone"></label>
+  <button type="submit">Call me</button>
+</form>
+</body>
+</html>

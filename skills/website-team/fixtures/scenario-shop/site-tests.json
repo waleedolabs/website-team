@@ -1,0 +1,163 @@
+{
+ "backend": {
+  "POST /api/order": 200
+ },
+ "scenarios": [
+  {
+   "id": "total-adds-up",
+   "page": "index.html",
+   "desc": "A + B + A gives 3 items and total 25",
+   "steps": [
+    {
+     "click": "#add-a"
+    },
+    {
+     "click": "#add-b"
+    },
+    {
+     "click": "#add-a"
+    }
+   ],
+   "expect": [
+    {
+     "text": "#count",
+     "equals": "3"
+    },
+    {
+     "text": "#total",
+     "equals": "25"
+    }
+   ]
+  },
+  {
+   "id": "empty-cart-blocked",
+   "page": "index.html",
+   "desc": "Ordering with an empty cart sends nothing and explains why",
+   "steps": [
+    {
+     "fill": "input[name=name]",
+     "value": "Sara"
+    },
+    {
+     "submit": "#order"
+    }
+   ],
+   "expect": [
+    {
+     "no_request": "POST /api/order"
+    },
+    {
+     "text": "#msg",
+     "not_empty": true
+    }
+   ]
+  },
+  {
+   "id": "order-carries-cart",
+   "page": "index.html",
+   "desc": "The order request contains the cart",
+   "steps": [
+    {
+     "click": "#add-a"
+    },
+    {
+     "submit": "#order"
+    }
+   ],
+   "expect": [
+    {
+     "request": "POST /api/order",
+     "count": 1
+    },
+    {
+     "body": "POST /api/order",
+     "contains": "10"
+    },
+    {
+     "text": "#msg",
+     "contains": "received"
+    }
+   ]
+  },
+  {
+   "id": "offline-shows-error",
+   "page": "index.html",
+   "desc": "Network failure shows an error message",
+   "offline": [
+    "/api/order"
+   ],
+   "steps": [
+    {
+     "click": "#add-a"
+    },
+    {
+     "submit": "#order"
+    }
+   ],
+   "expect": [
+    {
+     "text": "#msg",
+     "contains": "failed"
+    }
+   ]
+  },
+  {
+   "id": "no-double-order",
+   "page": "index.html",
+   "desc": "Double submit sends one order",
+   "steps": [
+    {
+     "click": "#add-a"
+    },
+    {
+     "double_submit": "#order"
+    }
+   ],
+   "expect": [
+    {
+     "request": "POST /api/order",
+     "count": 1
+    }
+   ]
+  },
+  {
+   "id": "mobile-count",
+   "page": "index.html",
+   "viewport": "mobile",
+   "desc": "Two add buttons visible on mobile",
+   "steps": [],
+   "expect": [
+    {
+     "count_visible": ".add",
+     "equals": 2
+    },
+    {
+     "visible": "#order"
+    }
+   ]
+  },
+  {
+   "id": "broken-scenario",
+   "page": "index.html",
+   "desc": "Invalid: unknown step key",
+   "steps": [
+    {
+     "tap": "#add-a"
+    }
+   ],
+   "expect": [
+    {
+     "text": "#count",
+     "equals": "1"
+    }
+   ]
+  }
+ ],
+ "form_setup": {
+  "#order": [
+   {
+    "click": "#add-a"
+   }
+  ]
+ }
+}

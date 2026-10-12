@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>قهوة الصباح</title>
+<style>
+  body { font-family: sans-serif; margin: 0; background: #faf6f0; color: #3b2a20; }
+  header { background: #3b2a20; color: #fff; padding: 16px 24px; }
+  nav a { color: #f2d9b3; margin-left: 16px; }
+  main { padding: 24px; }
+  .menu { display: flex; gap: 16px; }
+  .item { background: #fff; padding: 16px; border-radius: 8px; }
+  /* BUG 5: عرض ثابت يسبب تمرير أفقي وكسر التصميم على الموبايل */
+  .contact-box { width: 900px; background: #fff; padding: 16px; margin-top: 24px; }
+  /* BUG 6: تباين ضعيف بين لون النص والخلفية */
+  .note { background: #f5efe6; color: #e8dccb; padding: 8px; margin-top: 16px; }
+  button { padding: 10px 20px; background: #6f4e37; color: #fff; border: 0; border-radius: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>قهوة الصباح</h1>
+  <nav>
+    <a href="#menu">القائمة</a>
+    <!-- BUG 2: رابط مكسور، الصفحة غير موجودة -->
+    <a href="about-us.html">من نحن</a>
+    <a href="#contact">تواصل معنا</a>
+  </nav>
+</header>
+
+<main>
+  <section id="menu">
+    <h2>القائمة</h2>
+    <div class="menu">
+      <div class="item">
+        <!-- BUG 3: صورة بدون وصف alt -->
+        <img src="latte.jpg" width="120" height="80">
+        <p>لاتيه - 18 ر.س</p>
+      </div>
+      <div class="item">
+        <img src="espresso.jpg" alt="إسبريسو" width="120" height="80">
+        <p>إسبريسو - 12 ر.س</p>
+      </div>
+    </div>
+
+    <!-- BUG 1: زر الطلب لا يعمل، الدالة المستدعاة غير معرّفة -->
+    <button id="order-btn" onclick="startOrder()">اطلب الآن</button>
+  </section>
+
+  <p class="note">التوصيل متاح داخل المدينة فقط.</p>
+
+  <section id="contact" class="contact-box">
+    <h2>تواصل معنا</h2>
+    <!-- BUG 4: النموذج يرسل إلى مسار غير موجود -->
+    <form id="contact-form" action="/api/contact-missing" method="post">
+      <input type="text" name="name" placeholder="الاسم">
+      <input type="email" name="email" placeholder="البريد">
+      <textarea name="message" placeholder="رسالتك"></textarea>
+      <button type="submit">إرسال</button>
+    </form>
+  </section>
+</main>
+</body>
+</html>

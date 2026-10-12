@@ -1,0 +1,31 @@
+{
+ "note": "Scenario engine self-test. 'buggy' = page as shipped; 'fixed' = after applying fix_ops. Listed checks are compared exactly. form:index.html:#order passes in the fixed version only because of the declared form_setup precondition (without it: needs_review).",
+ "buggy": {
+  "scenario:total-adds-up": "pass",
+  "scenario:empty-cart-blocked": "fail",
+  "scenario:order-carries-cart": "pass",
+  "scenario:offline-shows-error": "fail",
+  "scenario:no-double-order": "fail",
+  "scenario:mobile-count": "pass",
+  "scenario:broken-scenario": "needs_review",
+  "form:index.html:#order": "pass"
+ },
+ "fixed": {
+  "scenario:total-adds-up": "pass",
+  "scenario:empty-cart-blocked": "pass",
+  "scenario:order-carries-cart": "pass",
+  "scenario:offline-shows-error": "pass",
+  "scenario:no-double-order": "pass",
+  "scenario:mobile-count": "pass",
+  "scenario:broken-scenario": "needs_review",
+  "form:index.html:#order": "pass"
+ },
+ "fix_ops": [
+  {
+   "op": "replace",
+   "file": "index.html",
+   "old": "    e.preventDefault();\n    const res = await fetch('/api/order', {method: 'POST', body: JSON.stringify({items: cart})});\n    document.getElementById('msg').textContent = res.ok ? 'Order received' : 'Order failed';",
+   "new": "    e.preventDefault();\n    const msg = document.getElementById('msg');\n    if (!cart.length) { msg.textContent = 'Your cart is empty'; return; }\n    const btn = e.target.querySelector('button[type=submit]');\n    btn.disabled = true;\n    try {\n      const res = await fetch('/api/order', {method: 'POST', body: JSON.stringify({items: cart})});\n      msg.textContent = res.ok ? 'Order received' : 'Order failed';\n    } catch (err) {\n      msg.textContent = 'Order failed: network error';\n    } finally { btn.disabled = false; }"
+  }
+ ]
+}

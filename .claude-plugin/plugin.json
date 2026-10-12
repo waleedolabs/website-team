@@ -1,0 +1,9 @@
+{
+  "name": "website-team",
+  "version": "0.1.0",
+  "description": "An AI website team: understands the project, proposes three design directions, a four-member committee (advocate, critic, technical inspector, chair) reviews the site, and every fix is verified by real browser tests with automatic rollback, ending in an honest report.",
+  "author": {
+    "name": "Waleed Arnaout"
+  },
+  "keywords": ["website", "design", "review", "testing", "playwright", "accessibility"]
+}

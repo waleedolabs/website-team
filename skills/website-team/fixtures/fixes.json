@@ -1,0 +1,37 @@
+{
+  "note": "Known-good fixes for fixtures/coffee-buggy. Applying all = golden page. Reversing one = single-bug mutant. 'expect' = checks that MUST fail when only this bug is present.",
+  "fixes": [
+    {"id": "F1", "expect": ["btn:index.html:#order-btn"], "ops": [
+      {"op": "replace", "file": "index.html",
+       "old": "<button id=\"order-btn\" onclick=\"startOrder()\">اطلب الآن</button>",
+       "new": "<button id=\"order-btn\" onclick=\"startOrder()\">اطلب الآن</button>\n    <p id=\"order-status\" role=\"status\"></p>"},
+      {"op": "replace", "file": "index.html", "old": "</body>",
+       "new": "<script>\nfunction startOrder() {\n  document.getElementById('order-status').textContent = 'تم استلام طلبك';\n}\n</script>\n</body>"}]},
+    {"id": "F2", "expect": ["link:index.html:about-us.html"], "ops": [
+      {"op": "create", "file": "about-us.html",
+       "text": "<!DOCTYPE html>\n<html lang=\"ar\" dir=\"rtl\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>من نحن</title></head><body><h1>من نحن</h1><p>محل قهوة مختصة.</p><a href=\"index.html\">العودة</a></body></html>\n"}]},
+    {"id": "F3", "expect": ["alt:index.html"], "ops": [
+      {"op": "replace", "file": "index.html", "old": "<img src=\"latte.jpg\" width=\"120\" height=\"80\">",
+       "new": "<img src=\"latte.jpg\" alt=\"لاتيه\" width=\"120\" height=\"80\">"}]},
+    {"id": "F4", "expect": ["form:index.html:#contact-form"], "ops": [
+      {"op": "replace", "file": "index.html", "old": "action=\"/api/contact-missing\"", "new": "action=\"/api/contact\""}]},
+    {"id": "F5", "expect": ["overflow:index.html"], "ops": [
+      {"op": "replace", "file": "index.html", "old": ".contact-box { width: 900px;",
+       "new": ".contact-box { max-width: 900px; box-sizing: border-box;"}]},
+    {"id": "F6", "expect": ["contrast:index.html"], "ops": [
+      {"op": "replace", "file": "index.html", "old": "color: #e8dccb;", "new": "color: #5c4a3a;"}]},
+    {"id": "F7", "expect": ["viewport:index.html"], "ops": [
+      {"op": "replace", "file": "index.html", "old": "<meta charset=\"UTF-8\">",
+       "new": "<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"}]},
+    {"id": "F8", "expect": ["img:index.html", "console:index.html"], "ops": [
+      {"op": "create", "file": "latte.jpg", "base64": "R0lGODlhAQABAIAAAKBuRgAAACwAAAAAAQABAAACAkQBADs="},
+      {"op": "create", "file": "espresso.jpg", "base64": "R0lGODlhAQABAIAAADwoHgAAACwAAAAAAQABAAACAkQBADs="}]},
+    {"id": "F9", "expect": ["labels:index.html"], "ops": [
+      {"op": "replace", "file": "index.html", "old": "<input type=\"text\" name=\"name\" placeholder=\"الاسم\">",
+       "new": "<input type=\"text\" name=\"name\" placeholder=\"الاسم\" aria-label=\"الاسم\">"},
+      {"op": "replace", "file": "index.html", "old": "<input type=\"email\" name=\"email\" placeholder=\"البريد\">",
+       "new": "<input type=\"email\" name=\"email\" placeholder=\"البريد\" aria-label=\"البريد الإلكتروني\">"},
+      {"op": "replace", "file": "index.html", "old": "<textarea name=\"message\" placeholder=\"رسالتك\"></textarea>",
+       "new": "<textarea name=\"message\" placeholder=\"رسالتك\" aria-label=\"رسالتك\"></textarea>"}]}
+  ]
+}

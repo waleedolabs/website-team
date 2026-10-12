@@ -1,0 +1,734 @@
+#!/usr/bin/env python3
+"""Generic website test runner (Playwright + Chromium). No AI involved.
+
+Usage:
+  python3 run_tests.py SITE_DIR [--out results.json] [--shots DIR] [--quiet]
+
+Optional config: SITE_DIR/site-tests.json
+  {
+    "backend": {"POST /api/contact": 200},   # declared backend contract, served by a mock
+    "pages": ["index.html", "menu.html"],     # default: every *.html file (max 20)
+    "skip": ["contrast:"],                    # check-id prefixes to skip (reported as not_run)
+    "scenarios": [ ... ],                     # custom behaviour checks, see references/scenarios.md
+    "form_setup": {"#order-form": [{"click": ".add"}]}   # preconditions before the generic form check
+  }
+
+Reliability rules:
+  * Site served from SITE_DIR on 127.0.0.1 (ephemeral port). Requests to any other host are
+    blocked, so results never depend on the internet.
+  * Every check opens its own fresh page.
+  * A check that cannot execute -> needs_review (never crashes, never a fake pass).
+  * The runner knows nothing about expected bugs; it reports what it observes.
+Statuses: pass | fail | needs_review | not_run
+"""
+import argparse
+import hashlib
+import json
+import sys
+import threading
+from contextlib import contextmanager
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
+
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:  # pragma: no cover
+    print("ERROR: playwright is not installed. Run scripts/check_env.py for setup steps.", file=sys.stderr)
+    sys.exit(3)
+
+TIMEOUT = 3000
+DESKTOP = {"width": 1280, "height": 800}
+MOBILE = {"width": 375, "height": 667}
+MAX_PAGES = 20
+MAX_BUTTONS_PER_PAGE = 25
+
+
+# ------------------------------------------------------------------ server
+def make_handler(site_dir, backend):
+    class H(SimpleHTTPRequestHandler):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, directory=site_dir, **kw)
+
+        def _backend(self, method):
+            key = f"{method} {self.path.split('?')[0]}"
+            n = int(self.headers.get("Content-Length") or 0)
+            if n:
+                self.rfile.read(n)
+            if key in backend:
+                code = int(backend[key])
+                body = b'{"ok": true}' if code < 400 else b'{"ok": false}'
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return True
+            return False
+
+        def do_GET(self):
+            if not self._backend("GET"):
+                super().do_GET()
+
+        def do_POST(self):
+            if not self._backend("POST"):
+                self.send_error(404, "Not Found (endpoint not in declared backend)")
+
+        do_PUT = do_POST
+
+        def end_headers(self):
+            self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    return H
+
+
+# ------------------------------------------------------------------ helpers
+def row(cid, name, status, detail, evidence=None):
+    return {"id": cid, "name": name, "status": status, "detail": detail, "evidence": evidence}
+
+
+class Ctx:
+    def __init__(self, browser, origin):
+        self.browser = browser
+        self.origin = origin
+
+    @contextmanager
+    def page(self, viewport=DESKTOP, offline=()):
+        ctx = self.browser.new_context(viewport=viewport)
+
+        def router(route):
+            u = route.request.url
+            if u.startswith("data:"):
+                return route.continue_()
+            if not u.startswith(self.origin):
+                return route.abort()  # isolation: only our local server
+            if urlparse(u).path in offline:
+                return route.abort("internetdisconnected")  # simulated network failure
+            return route.continue_()
+        ctx.route("**/*", router)
+        page = ctx.new_page()
+        page.set_default_timeout(TIMEOUT)
+        try:
+            yield page
+        finally:
+            ctx.close()
+
+
+SNAPSHOT_JS = """() => {
+  const h = document.body ? document.body.outerHTML : '';
+  return [location.href, document.body ? document.body.innerText : '', h.length, h, window.scrollY];
+}"""
+
+CANDIDATES_JS = """(maxN) => {
+  const vis = e => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e);
+                     return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
+  const all = [...document.querySelectorAll('button, input[type=button], [onclick], [role=button]')]
+    .filter(e => !e.closest('form') || e.type === 'button' && e.tagName === 'BUTTON' && e.getAttribute('type') === 'button');
+  const seen = {}; const out = [];
+  all.forEach((e, i) => {
+    const label = (e.id ? '#' + e.id : (e.innerText || e.value || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30));
+    seen[label] = (seen[label] || 0) + 1;
+    const key = seen[label] > 1 ? label + '[' + seen[label] + ']' : label;
+    out.push({i, key, visible: vis(e), tag: e.tagName.toLowerCase()});
+  });
+  return out.slice(0, maxN);
+}"""
+
+TAG_JS = """(i) => {
+  const all = [...document.querySelectorAll('button, input[type=button], [onclick], [role=button]')]
+    .filter(e => !e.closest('form') || e.type === 'button' && e.tagName === 'BUTTON' && e.getAttribute('type') === 'button');
+  all[i].setAttribute('data-wt-target', '1');
+}"""
+
+CONTRAST_JS = """() => {
+  const parse = c => (c.match(/[\\d.]+/g) || []).map(Number);
+  const lum = ([r,g,b]) => { const f = v => { v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); };
+                             return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b); };
+  const bgOf = el => { while (el) { const p = parse(getComputedStyle(el).backgroundColor);
+      if (p.length >= 3 && !(p.length === 4 && p[3] === 0)) return p.slice(0,3); el = el.parentElement; }
+    return [255,255,255]; };
+  const out = [];
+  document.querySelectorAll('body *').forEach(el => {
+    if (['SCRIPT','STYLE','NOSCRIPT','svg'].includes(el.tagName)) return;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden' || cs.display === 'none') return;
+    if (getComputedStyle(el).backgroundImage !== 'none') return;  // cannot judge text over images
+    const hasText = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+    if (!hasText) return;
+    const fg = parse(cs.color).slice(0,3), bg = bgOf(el);
+    const l1 = lum(fg), l2 = lum(bg);
+    const ratio = (Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05);
+    const size = parseFloat(cs.fontSize), bold = parseInt(cs.fontWeight) >= 700;
+    const need = (size >= 24 || (size >= 18.66 && bold)) ? 3 : 4.5;
+    out.push({selector: el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.split(' ').join('.') : ''),
+              text: el.textContent.trim().slice(0, 40), ratio: Math.round(ratio*100)/100, need, ok: ratio >= need});
+  });
+  return out;
+}"""
+
+LABELS_JS = """() => {
+  const fields = [...document.querySelectorAll('input, select, textarea')]
+    .filter(e => !['hidden','submit','button','reset','image'].includes((e.type||'').toLowerCase()));
+  return fields.filter(e => {
+    if (e.getAttribute('aria-label') && e.getAttribute('aria-label').trim()) return false;
+    if (e.getAttribute('aria-labelledby')) return false;
+    if (e.closest('label')) return false;
+    if (e.id && document.querySelector('label[for="' + CSS.escape(e.id) + '"]')) return false;
+    if (e.getAttribute('title') && e.getAttribute('title').trim()) return false;
+    return true;
+  }).map(e => e.tagName.toLowerCase() + (e.name ? '[name=' + e.name + ']' : '') + (e.id ? '#' + e.id : ''));
+}"""
+
+FILL_JS = """(formIndex) => {
+  const f = document.querySelectorAll('form')[formIndex];
+  const radios = {};
+  [...f.elements].forEach(e => {
+    const t = (e.type || '').toLowerCase();
+    if (e.disabled || ['hidden','submit','button','reset','image','file'].includes(t)) return;
+    if (e.tagName === 'SELECT') { const o = [...e.options].find(o => o.value && !o.disabled); if (o) e.value = o.value; return; }
+    if (t === 'checkbox') { e.checked = true; return; }
+    if (t === 'radio') { if (!radios[e.name]) { e.checked = true; radios[e.name] = 1; } return; }
+    const v = {email: 'test@example.com', tel: '0500000000', number: (e.min || '1'), url: 'https://example.com',
+               date: '2026-01-15', time: '10:00', 'datetime-local': '2026-01-15T10:00', password: 'Test1234!',
+               month: '2026-01', week: '2026-W03', color: '#336699', range: (e.min || '1')}[t];
+    e.value = v !== undefined ? v : (e.tagName === 'TEXTAREA' ? 'Test message' : 'Test');
+    e.dispatchEvent(new Event('input', {bubbles: true})); e.dispatchEvent(new Event('change', {bubbles: true}));
+  });
+  const invalid = [...f.elements].filter(e => e.willValidate && !e.checkValidity()).map(e => e.name || e.id || e.tagName);
+  const sub = f.querySelector('button[type=submit], input[type=submit], button:not([type])');
+  if (sub) sub.setAttribute('data-wt-submit', '1');
+  return {invalid, hasSubmit: !!sub, action: f.getAttribute('action'), method: (f.getAttribute('method') || 'get').toLowerCase(),
+          id: f.id || null};
+}"""
+
+
+# ------------------------------------------------------------------ page-level checks
+def check_page(cx, base, page_name, results, skip, form_setup=None):
+    url = urljoin(base, page_name)
+    P = page_name
+
+    def add(r):
+        if any(r["id"].startswith(s) for s in skip):
+            r = row(r["id"], r["name"], "not_run", "skipped by site-tests.json")
+        results.append(r)
+
+    def safe(cid, name, fn):
+        if any(cid.startswith(s) for s in skip):
+            results.append(row(cid, name, "not_run", "skipped by site-tests.json"))
+            return
+        try:
+            fn()
+        except Exception as e:
+            first = (str(e).strip().splitlines() or [""])[0][:160]
+            results.append(row(cid, name, "needs_review", f"check could not run: {type(e).__name__}: {first}"))
+
+    # load + console + failed resources
+    def load():
+        errs, bad, ext = [], [], []
+        with cx.page() as page:
+            page.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
+            page.on("pageerror", lambda e: errs.append("JS error: " + str(e)))
+            page.on("response", lambda r: bad.append(f"{r.status} {urlparse(r.url).path}") if r.status >= 400 else None)
+            page.on("request", lambda r: ext.append((r.resource_type, r.url))
+                    if not r.url.startswith(cx.origin) and not r.url.startswith("data:") else None)
+            resp = page.goto(url)
+            page.wait_for_timeout(300)
+        if ext:
+            heavy = sorted({u for t, u in ext if t in ("script", "stylesheet")})
+            light = sorted({u for t, u in ext if t not in ("script", "stylesheet")})
+            if heavy:
+                add(row(f"external:{P}", f"{P}: depends on external scripts/styles", "needs_review",
+                        f"{len(heavy)} external scripts/stylesheets were blocked by the isolated test; "
+                        "the page was tested WITHOUT them, so layout/behaviour results may not match the live site",
+                        heavy[:8]))
+            else:
+                add(row(f"external:{P}", f"{P}: external fonts/images", "not_run",
+                        f"{len(light)} external resources (fonts/images) not loaded in the isolated test", light[:8]))
+        status = resp.status if resp else 0
+        add(row(f"load:{P}", f"{P} loads", "pass" if 0 < status < 400 else "fail", f"HTTP {status}"))
+        problems = sorted(set(bad)) + [e for e in errs if not e.startswith("Failed to load resource")]
+        add(row(f"console:{P}", f"{P}: no errors or failed resources on load",
+                "fail" if problems else "pass", f"{len(problems)} problems", problems[:8] or None))
+    safe(f"load:{P}", f"{P} loads", load)
+
+    # static DOM checks (one page load)
+    def static():
+        with cx.page() as page:
+            page.goto(url)
+            page.wait_for_timeout(200)
+            info = page.evaluate("""() => ({
+                vp: (document.querySelector('meta[name=viewport]') || {}).content || null,
+                lang: document.documentElement.getAttribute('lang'),
+                title: document.title,
+                imgs: [...document.images].map(i => ({src: i.getAttribute('src'), alt: i.getAttribute('alt'),
+                         broken: i.complete && i.naturalWidth === 0}))})""")
+            contrast = page.evaluate(CONTRAST_JS)
+            unlabeled = page.evaluate(LABELS_JS)
+        vp = info["vp"]
+        add(row(f"viewport:{P}", f"{P}: viewport meta for mobile", "pass" if vp and "width=device-width" in vp else "fail",
+                f"viewport meta: {vp!r}"))
+        add(row(f"lang:{P}", f"{P}: <html lang> set", "pass" if (info["lang"] or "").strip() else "fail",
+                f"lang={info['lang']!r}"))
+        add(row(f"title:{P}", f"{P}: page has a title", "pass" if (info["title"] or "").strip() else "fail",
+                f"title={info['title']!r}"))
+        imgs = info["imgs"]
+        if imgs:
+            noalt = [i["src"] for i in imgs if i["alt"] is None]
+            add(row(f"alt:{P}", f"{P}: images have alt attribute", "fail" if noalt else "pass",
+                    f"{len(noalt)} of {len(imgs)} images missing alt", noalt or None))
+            is_ext = lambda src: (src or "").lower().startswith(("http://", "https://", "//"))
+            broken = [i["src"] for i in imgs if i["broken"] and not is_ext(i["src"])]
+            local = [i for i in imgs if not is_ext(i["src"])]
+            if local:
+                add(row(f"img:{P}", f"{P}: local images load", "fail" if broken else "pass",
+                        f"{len(broken)} of {len(local)} local images failed to load", broken or None))
+        bad = [c for c in contrast if not c["ok"]]
+        add(row(f"contrast:{P}", f"{P}: text contrast meets WCAG AA", "fail" if bad else "pass",
+                f"{len(bad)} of {len(contrast)} text elements below threshold", bad[:8] or None))
+        add(row(f"labels:{P}", f"{P}: form fields have labels", "fail" if unlabeled else "pass",
+                f"{len(unlabeled)} fields without an accessible label", unlabeled or None))
+    safe(f"static:{P}", f"{P}: static checks", static)
+
+    # mobile overflow
+    def mobile():
+        with cx.page(MOBILE) as page:
+            page.goto(url)
+            page.wait_for_timeout(200)
+            d = page.evaluate("() => ({sw: document.documentElement.scrollWidth, iw: window.innerWidth})")
+            wide = page.evaluate("""() => [...document.querySelectorAll('body *')].filter(e => {
+                const r = e.getBoundingClientRect(); return r.right > window.innerWidth + 1 || r.left < -1; })
+                .map(e => e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.split(' ').join('.') : ''))""")
+        over = d["sw"] > d["iw"]
+        add(row(f"overflow:{P}", f"{P}: no horizontal scroll on mobile (375px)", "fail" if over else "pass",
+                f"scrollWidth={d['sw']} vs viewport={d['iw']}", wide[:6] if over else None))
+    safe(f"overflow:{P}", f"{P}: mobile overflow", mobile)
+
+    # links
+    def links():
+        with cx.page() as page:
+            page.goto(url)
+            hrefs = page.eval_on_selector_all("a[href]", "els => els.map(e => e.getAttribute('href'))")
+            ids = set(page.eval_on_selector_all("[id], a[name]", "els => els.map(e => e.id || e.getAttribute('name'))"))
+            seen = set()
+            for href in hrefs:
+                if href in seen:
+                    continue
+                seen.add(href)
+                cid, name = f"link:{P}:{href}", f"{P}: link {href} works"
+                h = href.strip()
+                if h in ("#", ""):
+                    add(row(cid, name, "needs_review", "placeholder link: goes nowhere"))
+                elif h.startswith("#"):
+                    ok = h[1:] in ids
+                    add(row(cid, name, "pass" if ok else "fail", "anchor target found" if ok else "no element with this id"))
+                elif h.lower().startswith("javascript:"):
+                    add(row(cid, name, "needs_review", "javascript: link, behaviour not verified"))
+                elif h.lower().startswith(("mailto:", "tel:", "http://", "https://", "//", "whatsapp:", "sms:")):
+                    add(row(cid, name, "not_run", "external/app link not checked (isolated environment)"))
+                else:
+                    r = page.request.get(urljoin(url, h))
+                    add(row(cid, name, "pass" if r.status < 400 else "fail", f"HTTP {r.status}", f"GET {h} -> {r.status}"))
+    safe(f"link:{P}", f"{P}: links", links)
+
+    # buttons (each in a fresh page)
+    def buttons():
+        with cx.page() as page:
+            page.goto(url)
+            cands = page.evaluate(CANDIDATES_JS, MAX_BUTTONS_PER_PAGE)
+        hidden = [c["key"] for c in cands if not c["visible"]]
+        if hidden:
+            add(row(f"btn-hidden:{P}", f"{P}: hidden buttons", "not_run",
+                    f"{len(hidden)} buttons hidden at load were not clicked", hidden))
+        for c in cands:
+            if not c["visible"]:
+                continue
+            cid, name = f"btn:{P}:{c['key']}", f"{P}: button '{c['key']}' works"
+            try:
+                with cx.page() as page:
+                    errs, popups = [], []
+                    page.on("pageerror", lambda e: errs.append(str(e)))
+                    page.on("popup", lambda p: popups.append(p.url))
+                    page.goto(url)
+                    page.wait_for_timeout(150)
+                    page.evaluate(TAG_JS, c["i"])
+                    before = page.evaluate(SNAPSHOT_JS)
+                    page.click("[data-wt-target]")
+                    page.wait_for_timeout(400)
+                    after = page.evaluate(SNAPSHOT_JS)
+                    nav_status = None
+                    if after[0].split("#")[0] != before[0].split("#")[0]:
+                        nav_status = page.request.get(after[0]).status
+                if errs:
+                    add(row(cid, name, "fail", "click threw a JS error", errs[0][:200]))
+                elif nav_status is not None and nav_status >= 400:
+                    add(row(cid, name, "fail", f"click navigated to a broken page (HTTP {nav_status})", after[0]))
+                elif before != after or popups:
+                    add(row(cid, name, "pass", "click produced an observable change"))
+                else:
+                    add(row(cid, name, "needs_review", "no error, but the click changed nothing observable"))
+            except Exception as e:
+                first = (str(e).strip().splitlines() or [""])[0][:160]
+                add(row(cid, name, "needs_review", f"check could not run: {type(e).__name__}: {first}"))
+    safe(f"btn:{P}", f"{P}: buttons", buttons)
+
+    # forms
+    def forms():
+        with cx.page() as page:
+            page.goto(url)
+            n = page.evaluate("() => document.querySelectorAll('form').length")
+        for fi in range(n):
+            cid = f"form:{P}:{fi}"
+            try:
+                with cx.page() as page:
+                    errs, reqs = [], []
+                    page.on("pageerror", lambda e: errs.append(str(e)))
+                    page.on("request", lambda r: reqs.append(r) if r.resource_type in ("document", "xhr", "fetch") else None)
+                    page.goto(url)
+                    page.wait_for_timeout(150)
+                    fid = page.evaluate("(i) => document.querySelectorAll('form')[i].id || null", fi)
+                    setup = (form_setup or {}).get(f"#{fid}") if fid else None
+                    if setup:
+                        problem = do_simple_steps(page, setup)
+                        if problem:
+                            add(row(f"form:{P}:#{fid}", f"{P}: form #{fid} submits", "fail",
+                                    "declared precondition could not run", problem))
+                            continue
+                        reqs.clear()
+                    meta = page.evaluate(FILL_JS, fi)
+                    if meta["id"]:
+                        cid = f"form:{P}:#{meta['id']}"
+                    name = f"{P}: form {cid.split(':', 2)[2]} submits"
+                    act = (meta["action"] or "").strip().lower()
+                    if act.startswith("mailto:"):
+                        add(row(cid, name, "not_run", "mailto: form, opens the user's mail app; not verifiable"))
+                        continue
+                    if meta["invalid"]:
+                        add(row(cid, name, "needs_review", "could not fill the form validly", meta["invalid"]))
+                        continue
+                    before = page.evaluate(SNAPSHOT_JS)
+                    reqs.clear()
+                    if meta["hasSubmit"]:
+                        page.click("[data-wt-submit]")
+                    else:
+                        page.evaluate("(i) => document.querySelectorAll('form')[i].requestSubmit()", fi)
+                    page.wait_for_timeout(1200)
+                    sent = [r for r in reqs if not r.url.startswith("data:")]
+                    resp_info = []
+                    for r in sent:
+                        try:
+                            resp = r.response()
+                            resp_info.append((r.method, urlparse(r.url).path, urlparse(r.url).query,
+                                              resp.status if resp else None))
+                        except Exception:
+                            resp_info.append((r.method, urlparse(r.url).path, "", None))
+                    try:
+                        after = page.evaluate(SNAPSHOT_JS)
+                    except Exception:
+                        after = None
+                if errs:
+                    add(row(cid, name, "fail", "submitting threw a JS error", errs[0][:200]))
+                elif resp_info:
+                    m, path, q, st = resp_info[0]
+                    page_path = urlparse(url).path
+                    if st is None:
+                        add(row(cid, name, "needs_review", f"{m} {path}: no response received"))
+                    elif st >= 400:
+                        add(row(cid, name, "fail", f"{m} {path} -> HTTP {st}",
+                                "endpoint is not in the declared backend (site-tests.json)" if st == 404 else None))
+                    elif m == "GET" and path == page_path:
+                        add(row(cid, name, "needs_review", "form reloads its own page; no backend receives the data"))
+                    else:
+                        add(row(cid, name, "pass", f"{m} {path} -> HTTP {st}"))
+                elif after is not None and after != before:
+                    add(row(cid, name, "needs_review",
+                            "page changed (e.g. a thank-you message) but NO data was sent anywhere"))
+                else:
+                    add(row(cid, name, "fail", "submitting did nothing: no request, no visible change"))
+            except Exception as e:
+                first = (str(e).strip().splitlines() or [""])[0][:160]
+                add(row(cid, f"{P}: form {fi} submits", "needs_review", f"check could not run: {type(e).__name__}: {first}"))
+    safe(f"form:{P}", f"{P}: forms", forms)
+
+
+# ------------------------------------------------------------------ custom scenarios
+STEP_KEYS = {"click", "fill", "select", "submit", "double_submit", "wait", "check"}
+EXPECT_KEYS = {"request", "no_request", "text", "count_visible", "body", "no_js_error", "visible", "hidden"}
+
+
+def validate_scenario(sc):
+    """Return a list of problems (empty = valid)."""
+    errs = []
+    if not isinstance(sc, dict):
+        return ["scenario must be an object"]
+    sid = sc.get("id", "")
+    if not sid or not all(ch.isalnum() or ch in "-_" for ch in sid):
+        errs.append("id must be non-empty and use only letters, digits, - or _")
+    if not sc.get("page"):
+        errs.append("page is required")
+    if not isinstance(sc.get("steps", []), list):
+        errs.append("steps must be a list")
+    exp = sc.get("expect")
+    if not isinstance(exp, list) or not exp:
+        errs.append("expect must be a non-empty list")
+    for st in sc.get("steps", []) or []:
+        k = [x for x in st if x in STEP_KEYS]
+        if len(k) != 1:
+            errs.append(f"step needs exactly one of {sorted(STEP_KEYS)}: {st}")
+    for e in exp or []:
+        k = [x for x in e if x in EXPECT_KEYS]
+        if len(k) != 1:
+            errs.append(f"expectation needs exactly one of {sorted(EXPECT_KEYS)}: {e}")
+    if sc.get("viewport", "desktop") not in ("desktop", "mobile"):
+        errs.append("viewport must be desktop or mobile")
+    return errs
+
+
+def do_simple_steps(page, steps):
+    """Run click/fill/select/check/wait steps. Returns None or a failure message (missing/unusable element)."""
+    for n_step, st in enumerate(steps, 1):
+        key = next((k for k in st if k in ("click", "fill", "select", "check", "wait")), None)
+        if key is None:
+            raise ValueError(f"unsupported setup step: {st}")
+        if key == "wait":
+            page.wait_for_timeout(int(st["wait"]))
+            continue
+        sel = st[key]
+        if page.locator(sel).count() == 0:
+            return f"setup step {n_step}: element not found: {sel}"
+        if key == "click":
+            for _ in range(int(st.get("times", 1))):
+                page.click(sel)
+                page.wait_for_timeout(50)
+        elif key == "fill":
+            page.fill(sel, str(st.get("value", "")))
+        elif key == "select":
+            page.select_option(sel, str(st.get("value", "")))
+        elif key == "check":
+            page.check(sel)
+    return None
+
+
+def _method_path(spec):
+    parts = spec.split(None, 1)
+    return (parts[0].upper(), parts[1]) if len(parts) == 2 else ("ANY", parts[0])
+
+
+def run_scenario(cx, base, sc):
+    cid = f"scenario:{sc.get('id', '?')}"
+    name = sc.get("desc") or cid
+    problems = validate_scenario(sc)
+    if problems:
+        return row(cid, name, "needs_review", "invalid scenario: " + "; ".join(problems))
+    vp = MOBILE if sc.get("viewport") == "mobile" else DESKTOP
+    reqs, errs = [], []
+    try:
+        with cx.page(vp, offline=tuple(sc.get("offline", []))) as page:
+            page.on("pageerror", lambda e: errs.append(str(e)))
+            page.on("request", lambda r: reqs.append(r) if r.resource_type in ("xhr", "fetch", "document") else None)
+            page.goto(urljoin(base, sc["page"]))
+            page.wait_for_timeout(150)
+            reqs.clear()
+            for n_step, st in enumerate(sc.get("steps", []), 1):
+                key = next(k for k in st if k in STEP_KEYS)
+                sel = st[key] if key in ("click", "fill", "select", "check", "submit", "double_submit") else None
+                if sel is not None and page.locator(sel).count() == 0:
+                    # the control the correct behaviour needs does not exist: a definite failure
+                    return row(cid, name, "fail", f"step {n_step}: required element not found: {sel}",
+                               [f"step {n_step} ({key}) found no element matching {sel!r}"])
+                try:
+                    if key == "click":
+                        for _ in range(int(st.get("times", 1))):
+                            page.click(sel)
+                            page.wait_for_timeout(50)
+                    elif key == "fill":
+                        page.fill(sel, str(st.get("value", "")))
+                    elif key == "select":
+                        page.select_option(sel, str(st.get("value", "")))
+                    elif key == "check":
+                        page.check(sel)
+                except Exception as ex:
+                    if "Timeout" in type(ex).__name__ or "Timeout" in str(ex)[:80]:
+                        return row(cid, name, "fail", f"step {n_step}: element exists but could not be used "
+                                   f"(hidden, covered or disabled): {sel}", [str(ex).splitlines()[0][:160]])
+                    raise
+                if key in ("click", "fill", "select", "check"):
+                    continue
+                if "wait" in st:
+                    page.wait_for_timeout(int(st["wait"]))
+                elif "submit" in st or "double_submit" in st:
+                    sel = st.get("submit") or st.get("double_submit")
+                    n = 2 if "double_submit" in st else 1
+                    # JS-level click: a disabled submit button correctly does nothing
+                    page.evaluate("""([sel, n]) => { const f = document.querySelector(sel);
+                        if (!f) throw new Error('form not found: ' + sel);
+                        const b = f.querySelector('button[type=submit], input[type=submit], button:not([type])');
+                        for (let i = 0; i < n; i++) { if (b) b.click(); else f.requestSubmit(); } }""", [sel, n])
+            page.wait_for_timeout(int(sc.get("settle_ms", 900)))
+            sent = []
+            for r in reqs:
+                try:
+                    body = r.post_data or ""
+                except Exception:
+                    body = ""
+                sent.append((r.method, urlparse(r.url).path, body))
+            failed = []
+            for e in sc["expect"]:
+                if "request" in e or "no_request" in e:
+                    m, path = _method_path(e.get("request") or e.get("no_request"))
+                    n = sum(1 for (mm, pp, _) in sent if pp == path and (m == "ANY" or mm == m))
+                    if "no_request" in e:
+                        if n:
+                            failed.append(f"expected NO {m} {path}, saw {n}")
+                    else:
+                        want = e.get("count")
+                        if (want is None and n < 1) or (want is not None and n != int(want)):
+                            failed.append(f"expected {m} {path} x{want if want is not None else '>=1'}, saw {n}")
+                elif "body" in e:
+                    m, path = _method_path(e["body"])
+                    bodies = [b for (mm, pp, b) in sent if pp == path and (m == "ANY" or mm == m)]
+                    if not any(e.get("contains", "") in b for b in bodies):
+                        failed.append(f"no {m} {path} body contains {e.get('contains')!r}")
+                elif "text" in e:
+                    loc = page.locator(e["text"])
+                    t = loc.first.inner_text().strip() if loc.count() else None
+                    if t is None:
+                        failed.append(f"element not found: {e['text']}")
+                    elif "contains" in e and e["contains"] not in t:
+                        failed.append(f"{e['text']} text {t[:60]!r} lacks {e['contains']!r}")
+                    elif "equals" in e and t != str(e["equals"]):
+                        failed.append(f"{e['text']} text {t[:60]!r} != {e['equals']!r}")
+                    elif e.get("not_empty") and not t:
+                        failed.append(f"{e['text']} is empty")
+                elif "count_visible" in e:
+                    n = page.evaluate("""(sel) => [...document.querySelectorAll(sel)].filter(x => {
+                        const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length""", e["count_visible"])
+                    if n != int(e.get("equals", -1)):
+                        failed.append(f"visible {e['count_visible']} = {n}, expected {e.get('equals')}")
+                elif "visible" in e or "hidden" in e:
+                    sel = e.get("visible") or e.get("hidden")
+                    vis = page.evaluate("""(sel) => { const x = document.querySelector(sel); if (!x) return null;
+                        const r = x.getBoundingClientRect(); const s = getComputedStyle(x);
+                        return r.width > 0 && r.height > 0 && s.visibility !== 'hidden'; }""", sel)
+                    if vis is None:
+                        failed.append(f"element not found: {sel}")
+                    elif "visible" in e and not vis:
+                        failed.append(f"{sel} is not visible")
+                    elif "hidden" in e and vis:
+                        failed.append(f"{sel} is visible")
+                elif "no_js_error" in e:
+                    if errs:
+                        failed.append(f"JS error: {errs[0][:150]}")
+    except Exception as ex:
+        first = (str(ex).strip().splitlines() or [""])[0][:160]
+        return row(cid, name, "needs_review", f"scenario could not run: {type(ex).__name__}: {first}")
+    if failed:
+        return row(cid, name, "fail", f"{len(failed)} expectation(s) not met", failed)
+    return row(cid, name, "pass", f"all {len(sc['expect'])} expectations met")
+
+
+# ------------------------------------------------------------------ main
+def find_pages(site, cfg):
+    if cfg.get("pages"):
+        return cfg["pages"][:MAX_PAGES]
+    pages = sorted(str(p.relative_to(site)) for p in site.rglob("*.html")
+                   if not any(part.startswith(".") or part == "node_modules" for part in p.relative_to(site).parts))
+    if "index.html" in pages:
+        pages.remove("index.html")
+        pages.insert(0, "index.html")
+    return pages[:MAX_PAGES]
+
+
+def tree_hash(site):
+    h = hashlib.sha256()
+    for p in sorted(site.rglob("*")):
+        if p.is_file():
+            h.update(str(p.relative_to(site)).encode())
+            h.update(p.read_bytes())
+    return h.hexdigest()[:16]
+
+
+def run(site_dir, shots=None, shots_only=False):
+    site = Path(site_dir).resolve()
+    cfg_path = site / "site-tests.json"
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+    backend = cfg.get("backend", {})
+    skip = cfg.get("skip", [])
+    pages = find_pages(site, cfg)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(str(site), backend))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    origin = f"http://127.0.0.1:{server.server_address[1]}"
+    base = origin + "/"
+    results = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        cx = Ctx(browser, origin)
+        if not pages:
+            results.append(row("site", "site has HTML pages", "fail", "no .html files found"))
+        for pg in pages:
+            if not shots_only:
+                check_page(cx, base, pg, results, skip, cfg.get("form_setup", {}))
+        if not shots_only:
+            for sc in cfg.get("scenarios", []):
+                results.append(run_scenario(cx, base, sc))
+        if shots:
+            out = Path(shots)
+            out.mkdir(parents=True, exist_ok=True)
+            for pg in pages:
+                for label, vp in (("desktop", DESKTOP), ("mobile", MOBILE)):
+                    try:
+                        with cx.page(vp) as page:
+                            page.goto(urljoin(base, pg))
+                            page.wait_for_timeout(300)
+                            safe_name = pg.replace("/", "__").replace(".html", "")
+                            page.screenshot(path=str(out / f"{safe_name}_{label}.png"), full_page=True)
+                    except Exception:
+                        pass
+        browser.close()
+    server.shutdown()
+    results += [
+        row("N:performance", "performance audit (Lighthouse)", "not_run", "not available in this runner"),
+        row("N:a11y-full", "full accessibility audit (axe/Lighthouse)", "not_run",
+            "only basic checks ran: alt, contrast, labels, lang, title, viewport"),
+        row("N:security", "security checks", "not_run", "no security checks implemented"),
+        row("N:browsers", "other browsers (Safari/Firefox)", "not_run", "only Chromium was used"),
+    ]
+    return {"site": str(site), "tree_hash": tree_hash(site), "pages": pages,
+            "backend_declared": backend, "results": results}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("site_dir")
+    ap.add_argument("--out")
+    ap.add_argument("--shots", help="save desktop+mobile screenshots of every page into this folder")
+    ap.add_argument("--shots-only", action="store_true", help="only take screenshots, run no checks")
+    ap.add_argument("--quiet", action="store_true")
+    a = ap.parse_args()
+    if not Path(a.site_dir).is_dir():
+        print(f"ERROR: not a directory: {a.site_dir}", file=sys.stderr)
+        return 2
+    if a.shots_only and not a.shots:
+        print("ERROR: --shots-only needs --shots DIR", file=sys.stderr)
+        return 2
+    data = run(a.site_dir, a.shots, a.shots_only)
+    if a.shots_only:
+        print(f"screenshots saved to {a.shots}")
+        return 0
+    if a.out:
+        Path(a.out).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    if not a.quiet:
+        counts = {}
+        for r in data["results"]:
+            counts[r["status"]] = counts.get(r["status"], 0) + 1
+        print(json.dumps(counts))
+        for r in data["results"]:
+            print(f'{r["status"]:12} {r["id"][:45]:45} | {r["detail"]}')
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
