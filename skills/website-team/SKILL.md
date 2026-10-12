@@ -35,7 +35,7 @@ Assume the user is **present** unless they said they will not be available, or t
 
 Ask again later only for items that need approval (rule 4). When the user is not available, make reasonable assumptions, write them at the top of `brief.md`, choose the direction yourself and say why, and continue.
 
-Keep `STATUS.md` in the project folder updated at every step: current step, what was decided, and what you are waiting for. On a new turn or a new session, read it first and continue from there.
+Talk to the user only at the checkpoints, when something needs their decision, when something fails, and at the end: no progress chatter while commands or subagents run. Keep `STATUS.md` in the project folder updated at every step: current step, what was decided, and what you are waiting for. On a new turn or a new session, read it first and continue from there.
 
 ## Project layout
 
@@ -82,7 +82,7 @@ Build the chosen direction into `site/` with all required pages and functions, r
 ## Step 4: Committee review (one round by default)
 
 1. Screenshots for reviewers: `python3 scripts/run_tests.py site --shots committee/shots --shots-only`.
-2. Launch the **advocate**, **critic** and **inspector** in parallel as separate subagents (plugin agents `site-advocate`, `design-critic`, `qa-inspector`; if unavailable, a general-purpose subagent whose prompt starts with the full role file). Give each the absolute paths of `brief.md`, `site/`, `committee/shots/`, `work/state.json`, the scripts folder (inspector only) and its **output path** (`committee/advocate.md`, `committee/critic.md`, `committee/inspector.md`). Do **not** give them each other's output. They write their own complete reports.
+2. Launch the **advocate**, **critic** and **inspector** together in **one message, as normal (foreground) subagents, not background tasks**, so you simply wait until all three return; never poll or post status lines while they work. If your environment still sends background or hook notifications while waiting, do not answer them with text: stay silent until all three reports exist, then continue. If one member fails or times out, relaunch only that member once and say so in one line. Run them as separate subagents (plugin agents `site-advocate`, `design-critic`, `qa-inspector`; if unavailable, a general-purpose subagent whose prompt starts with the full role file). Give each the absolute paths of `brief.md`, `site/`, `committee/shots/`, `work/state.json`, the scripts folder (inspector only) and its **output path** (`committee/advocate.md`, `committee/critic.md`, `committee/inspector.md`). Do **not** give them each other's output. They write their own complete reports.
 3. Launch the **chair** (`committee-chair`) with the brief, the three report paths, `work/state.json`, and its output paths `committee/chair.md` and `committee/plan.json`.
 4. Run `python3 scripts/validate_committee.py --project .`. If INVALID, send the specific problem back to that member and ask it to rewrite its own file; never fix or shorten reports yourself. Proceed only when VALID (it also fingerprints the reports).
 

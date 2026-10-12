@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.2
+- Found by the first real user run (Windows, Claude desktop app): the coordinator launched the committee as background tasks and answered every background/hook notification with a line of text ("still waiting for the inspector"), flooding the chat. Step 4 now launches the three reviewers together as foreground subagents and waits silently; one failed member is relaunched once. General rule: no progress chatter, talk only at checkpoints, decisions, failures and the end.
+
 ## 0.2.1
 Found by the interactive verification of 0.2.0 (two installed-plugin runs: dental clinic, wedding photographer).
 - **Generic form check used a fixed date (2026-01-15) that had become past**, so a site that correctly refuses past dates looked broken (it caused a rejected fix in the photographer run). Dates are now relative to the day the test runs (+30 days) and clamped to the field's min/max. Fixture `form-cases/booking.html`: 0.2.0 needs_review, 0.2.1 pass.
