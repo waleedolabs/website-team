@@ -110,6 +110,7 @@ def main():
               "(زيارات أو مبيعات). هذه تحتاج قياساً بعد الإطلاق."]
     text = "\n".join(L) + "\n"
     if a.out:
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(text, encoding="utf-8")
     print(text)
 

@@ -66,6 +66,25 @@ def unit_tests():
         ok = reg == sorted(want)
         ok_all.append(ok)
         print(f"{'OK  ' if ok else 'FAIL'} unit: {name} (got {reg})")
+    # apply_ops(): malformed operations are refused before anything is changed, with a usable message
+    import tempfile as _tf
+    d = Path(_tf.mkdtemp(prefix="wt-ops-"))
+    (d / "index.html").write_text("<p>a</p>", encoding="utf-8")
+    op_cases = [
+        ("write with 'content' instead of 'text' -> clear hint",
+         [{"op": "write", "file": "x.html", "content": "<p>x</p>"}], ["'content'", "'text'"]),
+        ("replace missing 'new' -> names the field",
+         [{"op": "replace", "file": "index.html", "old": "a"}], ["'new'"]),
+        ("unknown op -> lists valid ops",
+         [{"op": "edit", "file": "index.html"}], ["replace", "write"]),
+        ("bad 2nd op -> nothing applied (1st op not written)",
+         [{"op": "write", "file": "y.html", "text": "y"}, {"op": "write", "file": "z.html"}], ["op 2"]),
+    ]
+    for name, ops, must in op_cases:
+        ok_, msg = wc.apply_ops(d, ops)
+        ok = (not ok_) and all(m in msg for m in must) and not (d / "y.html").exists() and not (d / "x.html").exists()
+        ok_all.append(ok)
+        print(f"{'OK  ' if ok else 'FAIL'} unit: {name} (got {msg!r})")
     return ok_all
 
 

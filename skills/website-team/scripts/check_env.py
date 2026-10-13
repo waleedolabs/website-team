@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Check that the test environment works. Exit 0 = ready. Prints exact setup steps otherwise."""
+import json
 import sys
+from pathlib import Path
+
+try:
+    VERSION = json.loads((Path(__file__).resolve().parents[3] / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
+except (OSError, ValueError, KeyError, IndexError):
+    VERSION = "unknown"
 
 steps = []
 try:
@@ -24,4 +31,4 @@ except Exception as e:
     print("Linux may also need:  python3 -m playwright install-deps chromium")
     sys.exit(1)
 
-print("READY: Python", sys.version.split()[0], "+ Playwright + Chromium work.")
+print(f"READY: website-team {VERSION}; Python {sys.version.split()[0]} + Playwright + Chromium work.")

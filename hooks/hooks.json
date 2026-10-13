@@ -1,0 +1,17 @@
+{
+  "description": "Auto-approve only plain invocations of website-team's own scripts with project-local arguments; every other command keeps the normal permission prompt.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/approve_scripts.py\" 2>/dev/null || python \"${CLAUDE_PLUGIN_ROOT}/hooks/approve_scripts.py\" 2>/dev/null || exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

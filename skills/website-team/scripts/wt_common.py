@@ -24,9 +24,47 @@ def _safe_path(site_dir, rel):
     return p
 
 
-def apply_ops(site_dir, ops):
+OP_FIELDS = {  # op -> (required fields, optional fields)
+    "replace": ({"file", "old", "new"}, set()),
+    "create": ({"file"}, {"text", "base64"}),
+    "write": ({"file"}, {"text", "base64"}),
+    "delete": ({"file"}, set()),
+}
+FIELD_HINTS = {"content": "text", "contents": "text", "body": "text", "data": "text", "path": "file",
+               "filename": "file", "find": "old", "search": "old", "replace": "new", "with": "new", "type": "op"}
+
+
+def check_ops(ops):
+    """Validate every operation before anything is applied. Returns an error message or None."""
     if not isinstance(ops, list) or not ops:
-        return False, "proposal has no operations"
+        return "proposal has no operations ('ops' must be a non-empty list)"
+    for i, op in enumerate(ops, 1):
+        if not isinstance(op, dict):
+            return f"op {i}: must be an object like {{\"op\": \"replace\", \"file\": ..., \"old\": ..., \"new\": ...}}"
+        kind = op.get("op")
+        if kind not in OP_FIELDS:
+            return f"op {i}: unknown op {kind!r}; valid ops: {', '.join(OP_FIELDS)}"
+        req, opt = OP_FIELDS[kind]
+        unknown = sorted(set(op) - req - opt - {"op"})
+        for u in unknown:
+            hint = FIELD_HINTS.get(u)
+            return (f"op {i} ({kind}): unknown field {u!r}" + (f"; use {hint!r} instead" if hint else "")
+                    + f". Fields for {kind}: {', '.join(sorted(req | opt))}")
+        missing = sorted(req - set(op))
+        if missing:
+            return f"op {i} ({kind}): missing field {missing[0]!r}. Fields for {kind}: {', '.join(sorted(req | opt))}"
+        if kind in ("create", "write") and ("text" in op) == ("base64" in op):
+            return f"op {i} ({kind}): give exactly one of 'text' (file content) or 'base64'"
+        for k in req | opt:
+            if k in op and not isinstance(op[k], str):
+                return f"op {i} ({kind}): field {k!r} must be a string"
+    return None
+
+
+def apply_ops(site_dir, ops):
+    err = check_ops(ops)
+    if err:
+        return False, err
     for i, op in enumerate(ops, 1):
         try:
             f = _safe_path(site_dir, op["file"])

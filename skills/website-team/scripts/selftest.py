@@ -5,8 +5,17 @@
   T2 mutation    : known-good page + ONE bug -> exactly the expected checks fail (detection + specificity)
   T3 determinism : identical statuses over repeated runs
 Exit 0 = the suite is trustworthy here.
+
+Options:
+  --quick          fewer repetitions (about 3 minutes)
+  --log FILE       also write the output to FILE (no shell redirection needed)
+  --if-needed      skip if this exact plugin code already PASSED on this machine
+                   (cache: ~/.cache/website-team/, keyed by a hash of scripts + fixtures + Python version)
 """
+import datetime
+import hashlib
 import json
+import platform
 import shutil
 import sys
 import tempfile
@@ -20,12 +29,53 @@ FIX = Path(__file__).parent.parent / "fixtures"
 LISTED_FIXTURES = ["contrast-cases", "form-cases"]
 
 
+CACHE = Path.home() / ".cache" / "website-team"
+
+
+class Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, x):
+        for s in self.streams:
+            s.write(x)
+            s.flush()
+
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+
+
+def code_key(quick):
+    """Hash of everything the self-test result depends on."""
+    h = hashlib.sha256()
+    base = Path(__file__).parent.parent
+    files = sorted(list((base / "scripts").glob("*.py")) + [p for p in (base / "fixtures").rglob("*") if p.is_file()])
+    for f in files:
+        if "__pycache__" in f.parts:
+            continue
+        h.update(str(f.relative_to(base)).encode())
+        h.update(f.read_bytes())
+    h.update(f"{platform.python_version()}|{'quick' if quick else 'full'}".encode())
+    return h.hexdigest()[:16]
+
+
 def bad(res):
     return sorted(i for i, r in res["results"].items() if r["status"] in ("fail", "needs_review"))
 
 
 def main():
     quick = "--quick" in sys.argv
+    if "--log" in sys.argv:
+        i = sys.argv.index("--log")
+        log = Path(sys.argv[i + 1])
+        log.parent.mkdir(parents=True, exist_ok=True)
+        sys.stdout = Tee(sys.__stdout__, open(log, "w", encoding="utf-8"))
+    key = code_key(quick)
+    marker = CACHE / f"selftest-{key}.ok"
+    if "--if-needed" in sys.argv and marker.exists():
+        print(f"SELFTEST: PASSED (cached: this exact plugin code passed on this machine on {marker.read_text().strip()}; key {key})")
+        return 0
     work = Path(tempfile.mkdtemp(prefix="wt-selftest-"))
     fixes = json.loads((FIX / "fixes.json").read_text(encoding="utf-8"))["fixes"]
     problems = []
@@ -175,6 +225,12 @@ def main():
     print(f"T7 committee validator: {ok_n}/{len(cases) + 1} as expected")
 
     shutil.rmtree(work, ignore_errors=True)
+    if not problems:
+        try:
+            CACHE.mkdir(parents=True, exist_ok=True)
+            marker.write_text(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
+        except OSError:
+            pass  # cache is only a convenience
     print("\nSELFTEST:", "PASSED" if not problems else "FAILED")
     for p in problems:
         print("  -", p)

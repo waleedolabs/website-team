@@ -863,6 +863,7 @@ def main():
         print(f"screenshots saved to {a.shots}")
         return 0
     if a.out:
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     if not a.quiet:
         counts = {}
