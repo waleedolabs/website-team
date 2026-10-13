@@ -55,6 +55,9 @@ ALLOW = [
 WIN_ROOT = r"C:\Users\pc\.claude\plugins\cache\wt\website-team\0.2.3"
 WIN_CWD = r"C:\Users\pc\AppData\Local\Temp\salon"
 WIN_ALLOW = [
+    # python not on PATH (seen in a real Windows run): full path to python.exe outside the project
+    rf'"C:\Users\pc\AppData\Local\Programs\Python\Python312\python.exe" "{WIN_ROOT}\skills\website-team\scripts\check_env.py"',
+    rf'C:/Users/pc/AppData/Local/Programs/Python/Python312/python.exe "{WIN_ROOT}\skills\website-team\scripts\run_tests.py" site',
     rf'python "{WIN_ROOT}\skills\website-team\scripts\run_tests.py" site --out "work\initial.json"',
     'python3 "C:/Users/pc/.claude/plugins/cache/wt/website-team/0.2.3/skills/website-team/scripts/check_env.py"',
     rf'py "{WIN_ROOT}\skills\website-team\scripts\verify_fix.py" try --site site --work work --proposal "{WIN_CWD}\proposals\01.json"',
@@ -80,6 +83,10 @@ DENY = [
     f'python3 "{S}/../../../../tmp/run_tests.py" site',
     f'python3 "/other/website-team/skills/website-team/scripts/run_tests.py" site',
     f'./python3 "{S}/run_tests.py" site',
+    f'{CWD}/python3 "{S}/run_tests.py" site',
+    f'"{CWD}/bin/python.exe" "{S}/run_tests.py" site',
+    f'/usr/bin/bash "{S}/run_tests.py" site',
+    f'/usr/../tmp/python3 "{S}/run_tests.py" site',
     f'bash "{S}/run_tests.py"',
     f'python3 -c "import os" "{S}/run_tests.py"',
     f'python3 - <<EOF\nprint(1)\nEOF',
@@ -132,6 +139,17 @@ def main():
     for tool, inp in reads_no:
         if run(inp, tool=tool) is not None:
             bad.append(("expected read no decision", tool, inp))
+    # E. through the shell shim that hooks.json really uses (finds Python; silent when there is none)
+    shim = ROOT / "hooks" / "run-python.sh"
+    real = {"tool_name": "Bash", "cwd": CWD, "tool_input": {"command": ALLOW[0]}}
+    p = subprocess.run(["bash", str(shim), str(HOOK)], input=json.dumps(real), capture_output=True, text=True,
+                       env=dict(os.environ, CLAUDE_PLUGIN_ROOT=PR))
+    if '"allow"' not in p.stdout or p.returncode:
+        bad.append(("shim did not pass the decision through", p.stdout, p.stderr))
+    p = subprocess.run(["/bin/bash", str(shim), str(HOOK)], input=json.dumps(real), capture_output=True, text=True,
+                       env={"PATH": "/nonexistent", "CLAUDE_PLUGIN_ROOT": PR})
+    if p.stdout.strip() or p.returncode:
+        bad.append(("shim without Python must be silent", p.stdout, p.returncode))
     # broken input must never approve or error out
     p = subprocess.run([sys.executable, str(HOOK)], input="not json", capture_output=True, text=True)
     if p.stdout.strip() or p.returncode:
@@ -145,7 +163,7 @@ def main():
                .replace("<name>", "run_tests").replace("<arguments>", "site"))
         if run(c2) != "allow":
             bad.append(("SKILL.md command not approved", c2, None))
-    n = len(ALLOW) + len(WIN_ALLOW) + len(DENY) + 3 + len(skill_cmds) + 13
+    n = len(ALLOW) + len(WIN_ALLOW) + len(DENY) + 3 + len(skill_cmds) + 15
 
     logs = sys.argv[1:]
     old = []

@@ -116,7 +116,7 @@ def run_once(site_dir, only=None):
     if only:
         cmd += ["--only", ",".join(sorted(only))]
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
         if p.returncode != 0:
             raise RuntimeError("test runner failed: " + (p.stderr or p.stdout)[-500:])
         return json.loads(Path(out).read_text(encoding="utf-8"))

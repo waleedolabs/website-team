@@ -33,6 +33,12 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
+for _stream in (sys.stdout, sys.stderr):  # Arabic output must not crash on a Windows (cp125x) console/pipe
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:  # pragma: no cover

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.4
+From the first real run of 0.2.3 on Windows (flower shop).
+- **Repeated "automatic notice" messages: caused by another plugin.** security-guidance on that machine is missing `security_reminder_hook.py`; its Stop hook (asyncRewake) fails after every reply and wakes the model again, so the chat filled with "this is an automatic notice, still waiting for your choice". Not fixable inside website-team; the user has to disable or reinstall that plugin. SKILL.md: say so once, then one-line replies only.
+- **Audit reported PROBLEMS on Windows for versions with Arabic text.** `audit_project.py` read the decision log without `encoding="utf-8"`, so on Windows (cp125x) Arabic `old` text did not match and replays failed. All file reads and subprocess output now use UTF-8 explicitly and every script forces UTF-8 stdout. Test: running the scripts with default-encoding I/O made fatal (`PYTHONWARNINGS=error::EncodingWarning`) failed the audit before and passes now; selftest, loop selftest (58/58) and audit all pass that way.
+- **Python not on PATH in PowerShell.** The approval hook now runs through `hooks/run-python.sh`, which finds a working Python (skips the Microsoft Store stub, tries python, py -3) and stays silent if none exists; the hook also accepts a full path to python.exe outside the project. SKILL.md says to use that path if needed.
+- **Self-test failed once, then passed, and the failing output was overwritten.** `--log` now appends each run, and SKILL.md says to report such a run as unstable with its failing lines.
+- Messages to the user in their language only (an English line slipped in).
+
 ## 0.2.3
 Usability review of real use (too many approval prompts; repeated "not received yet" messages). Evidence: every tool call in three earlier full runs was classified: 23, 30 and 32 shell commands per run each needed an approval, and none of them could ever be covered by an "always allow" rule (all compound: variables, `cd`, pipes, heredocs).
 - **Root cause 1: the coordinator used the shell for everything** (writing pages with heredocs, reading with `cat`/`sed`, editing with inline Python). SKILL.md now sets tool discipline: Read/Glob/Grep to read, Write/Edit to change files, shell only for the plugin's scripts in one fixed form.

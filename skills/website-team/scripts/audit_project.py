@@ -25,6 +25,12 @@ SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 from wt_common import apply_ops  # noqa: E402
 
+for _stream in (sys.stdout, sys.stderr):  # Arabic output must not crash on a Windows (cp125x) console/pipe
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 P = Path(sys.argv[1])
 work, site = P / "work", P / "site"
 problems = []
@@ -42,8 +48,8 @@ def diff_files(a, b):
 # A. reproducibility
 out = Path(tempfile.mkstemp(suffix=".json")[1])
 subprocess.run([sys.executable, str(SCRIPTS / "run_tests.py"), str(site), "--out", str(out), "--quiet"], check=True, capture_output=True)
-mine = {r["id"]: r["status"] for r in json.loads(out.read_text())["results"]}
-state = json.loads((work / "state.json").read_text())
+mine = {r["id"]: r["status"] for r in json.loads(out.read_text(encoding="utf-8"))["results"]}
+state = json.loads((work / "state.json").read_text(encoding="utf-8"))
 rec = {i: r["status"] for i, r in state["results"].items()}
 dif = {i: (rec.get(i), mine.get(i)) for i in set(mine) | set(rec) if mine.get(i) != rec.get(i)}
 print(f"A. re-run vs recorded state: {len(mine)} checks, differences: {dif or 'none'}")
@@ -55,7 +61,7 @@ for s in mine.values():
 print(f"   my run counts: {cnt}")
 
 # B. version chain
-log = [json.loads(l) for l in (work / "decisions.jsonl").read_text().splitlines() if l.strip()]
+log = [json.loads(l) for l in (work / "decisions.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
 by_after = {}
 for e in log:
     if e.get("version_after") is not None:
@@ -99,20 +105,20 @@ if d:
 first_seen = {}
 for v in versions:
     f = work / "versions" / f"v{v}" / "site-tests.json"
-    cfg = json.loads(f.read_text()) if f.exists() else {}
+    cfg = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
     for sc in cfg.get("scenarios", []):
         first_seen.setdefault(sc["id"], json.dumps(sc, sort_keys=True))
-final_cfg = json.loads((site / "site-tests.json").read_text()) if (site / "site-tests.json").exists() else {}
+final_cfg = json.loads((site / "site-tests.json").read_text(encoding="utf-8")) if (site / "site-tests.json").exists() else {}
 final_sc = {sc["id"]: json.dumps(sc, sort_keys=True) for sc in final_cfg.get("scenarios", [])}
 weak = [i for i, s in first_seen.items() if final_sc.get(i) != s]
 retired_final = {r["id"] for r in final_cfg.get("retired", [])}
 retired_logged = {e["targets"][0] for e in json.loads("[" + ",".join(
-    l for l in (work / "decisions.jsonl").read_text().splitlines() if l.strip()) + "]") if e["decision"] == "check-retired"}
+    l for l in (work / "decisions.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()) + "]") if e["decision"] == "check-retired"}
 if retired_final != retired_logged:
     problems.append(f"D: retired list in site-tests.json {sorted(retired_final)} != retirements in the log {sorted(retired_logged)}")
 print(f"   retired checks: {sorted(retired_final) or 'none'}")
 base_cfg_p = work / "versions" / "v0" / "site-tests.json"
-base_backend = json.loads(base_cfg_p.read_text()).get("backend") if base_cfg_p.exists() else None
+base_backend = json.loads(base_cfg_p.read_text(encoding="utf-8")).get("backend") if base_cfg_p.exists() else None
 print(f"D. scenarios ever added: {len(first_seen)}; removed/edited later: {weak or 'none'}; "
       f"backend contract v0 {base_backend} -> final {final_cfg.get('backend')}; skips: {final_cfg.get('skip', [])}")
 if weak:
@@ -128,7 +134,7 @@ print(f"E. decisions: {dec}")
 for e in log:
     if e["decision"] == "rejected":
         print(f"   rejected #{e['attempt']}: {e['title'][:60]} | {e['reason'][:120]}")
-base = json.loads((work / "baseline.json").read_text())
+base = json.loads((work / "baseline.json").read_text(encoding="utf-8"))
 bc = {}
 for r in base["results"].values():
     bc[r["status"]] = bc.get(r["status"], 0) + 1

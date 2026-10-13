@@ -89,7 +89,8 @@ if check(hj.exists(), "missing hooks/hooks.json"):
     try:
         h = json.loads(hj.read_text(encoding="utf-8"))
         cmds = [x["command"] for e in h["hooks"]["PreToolUse"] for x in e["hooks"]]
-        check(all("${CLAUDE_PLUGIN_ROOT}/hooks/approve_scripts.py" in c for c in cmds), "hooks.json command path")
+        check(all("${CLAUDE_PLUGIN_ROOT}/hooks/approve_scripts.py" in c and "run-python.sh" in c for c in cmds), "hooks.json command path")
+        check((ROOT / "hooks" / "run-python.sh").exists(), "missing hooks/run-python.sh")
         check((ROOT / "hooks" / "approve_scripts.py").exists(), "missing hooks/approve_scripts.py")
         print("hooks: OK", [e["matcher"] for e in h["hooks"]["PreToolUse"]])
     except (ValueError, KeyError) as e:

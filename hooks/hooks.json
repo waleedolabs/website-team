@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/approve_scripts.py\" 2>/dev/null || python \"${CLAUDE_PLUGIN_ROOT}/hooks/approve_scripts.py\" 2>/dev/null || exit 0",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/run-python.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/approve_scripts.py\"",
             "timeout": 10
           }
         ]

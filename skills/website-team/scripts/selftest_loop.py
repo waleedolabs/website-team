@@ -8,6 +8,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+for _stream in (sys.stdout, sys.stderr):  # Arabic output must not crash on a Windows (cp125x) console/pipe
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 HERE = Path(__file__).parent
 FIX = HERE.parent / "fixtures"
 V = [sys.executable, str(HERE / "verify_fix.py")]
@@ -98,7 +104,7 @@ def main():
     results = []
 
     def run(name, want, args, reason=None):
-        p = subprocess.run(V + args, capture_output=True, text=True, timeout=600)
+        p = subprocess.run(V + args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
         out = (p.stdout + p.stderr).strip().splitlines()
         ok = p.returncode == want and (reason is None or reason in (p.stdout + p.stderr))
         results.append(ok)
@@ -189,7 +195,7 @@ def main():
         prop("fv2", {"form_values": {"#contact-form": {"name": "Other"}}, "reason": "try to replace"})], reason="never replaced")
     # deterministic audit: clean project so far (every version replays from the log)
     A_ = [sys.executable, str(HERE / "audit_project.py"), str(T)]
-    pa = subprocess.run(A_, capture_output=True, text=True, timeout=600)
+    pa = subprocess.run(A_, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
     ok = pa.returncode == 0 and "AUDIT: CLEAN" in pa.stdout
     results.append(ok)
     print(f"{'OK  ' if ok else 'FAIL'} audit_project: clean project -> CLEAN")
@@ -206,7 +212,7 @@ def main():
             "targets": ["contrast:index.html"], "ops": [R("color: #e8dccb;", f"color: #d{n}cdb9;")]}))
     run("4th attempt on the same target -> refused by cap", 1, tr("real", {"title": "real contrast fix", "kind": "fix",
         "targets": ["contrast:index.html"], "ops": [R("color: #e8dccb;", "color: #5c4a3a;")]}), reason='attempt cap reached for contrast')
-    pa = subprocess.run(A_, capture_output=True, text=True, timeout=600)
+    pa = subprocess.run(A_, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
     ok = pa.returncode == 1 and "outside the loop or unknown" in pa.stdout
     results.append(ok)
     print(f"{'OK  ' if ok else 'FAIL'} audit_project: change made outside the loop is flagged")
@@ -219,7 +225,7 @@ def main():
                     e["reason"].startswith(("needs the user", "site was changed", "unknown target", "a fix may not", "removing elements")))
     results.append(guards_ok)
     print(f"{'OK  ' if guards_ok else 'FAIL'} guard rejections do not consume attempt caps")
-    p = subprocess.run([sys.executable, str(HERE / "report.py"), "--work", str(work)], capture_output=True, text=True)
+    p = subprocess.run([sys.executable, str(HERE / "report.py"), "--work", str(work)], capture_output=True, text=True, encoding="utf-8", errors="replace")
     results.append(p.returncode == 0 and "سجل محاولات الإصلاح" in p.stdout)
     print(f"{'OK  ' if results[-1] else 'FAIL'} report generated")
     shutil.rmtree(T, ignore_errors=True)

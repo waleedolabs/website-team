@@ -10,6 +10,12 @@ from pathlib import Path
 
 from wt_common import counts
 
+for _stream in (sys.stdout, sys.stderr):  # Arabic output must not crash on a Windows (cp125x) console/pipe
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 LABEL = {"pass": "نجح", "fail": "فشل", "needs_review": "يحتاج مراجعة", "not_run": "لم يُنفَّذ"}
 
 

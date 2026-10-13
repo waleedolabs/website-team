@@ -103,7 +103,13 @@ def decide(cmd, cwd, plugin_root):
     if not words or len(words) < 2:
         return None
     interp, _ = words[0]
-    if not INTERPRETER.match(interp):
+    base = posixpath.basename(interp.replace("\\", "/"))
+    if interp != base:
+        # a full path to Python (e.g. on Windows when python is not on PATH) is accepted only if it
+        # is absolute and outside the project folder, so a file written into the project cannot pose as it
+        if not is_abs(interp) or interp.startswith("~") or ".." in interp.replace("\\", "/").split("/") or inside(interp, cwd):
+            return None
+    if not INTERPRETER.match(base):
         return None
     script = words[1][0]
     scripts_dir = posixpath.join(plugin_root.replace("\\", "/"), "skills/website-team/scripts")

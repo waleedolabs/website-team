@@ -21,6 +21,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+for _stream in (sys.stdout, sys.stderr):  # Arabic output must not crash on a Windows (cp125x) console/pipe
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 # explicit admissions that a file is a retyped/condensed copy (a heading such as "## ملخص الرئيس" is legitimate)

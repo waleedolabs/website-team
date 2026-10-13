@@ -8,7 +8,7 @@ Exit 0 = the suite is trustworthy here.
 
 Options:
   --quick          fewer repetitions (about 3 minutes)
-  --log FILE       also write the output to FILE (no shell redirection needed)
+  --log FILE       also append the output to FILE (no shell redirection needed; earlier runs are kept)
   --if-needed      skip if this exact plugin code already PASSED on this machine
                    (cache: ~/.cache/website-team/, keyed by a hash of scripts + fixtures + Python version)
 """
@@ -23,6 +23,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from wt_common import apply_ops, reverse_ops, run_once, run_suite  # noqa: E402
+
+for _stream in (sys.stdout, sys.stderr):  # Arabic output must not crash on a Windows (cp125x) console/pipe
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 
 FIX = Path(__file__).parent.parent / "fixtures"
 # fixtures whose expected.json lists exact statuses for specific checks (regression guards)
@@ -70,11 +76,14 @@ def main():
         i = sys.argv.index("--log")
         log = Path(sys.argv[i + 1])
         log.parent.mkdir(parents=True, exist_ok=True)
-        sys.stdout = Tee(sys.__stdout__, open(log, "w", encoding="utf-8"))
+        # append, so an earlier failed run stays on record when the test is repeated
+        fh = open(log, "a", encoding="utf-8")
+        fh.write(f"\n===== selftest run {datetime.datetime.now():%Y-%m-%d %H:%M:%S} =====\n")
+        sys.stdout = Tee(sys.__stdout__, fh)
     key = code_key(quick)
     marker = CACHE / f"selftest-{key}.ok"
     if "--if-needed" in sys.argv and marker.exists():
-        print(f"SELFTEST: PASSED (cached: this exact plugin code passed on this machine on {marker.read_text().strip()}; key {key})")
+        print(f"SELFTEST: PASSED (cached: this exact plugin code passed on this machine on {marker.read_text(encoding="utf-8").strip()}; key {key})")
         return 0
     work = Path(tempfile.mkdtemp(prefix="wt-selftest-"))
     fixes = json.loads((FIX / "fixes.json").read_text(encoding="utf-8"))["fixes"]
@@ -228,7 +237,7 @@ def main():
     if not problems:
         try:
             CACHE.mkdir(parents=True, exist_ok=True)
-            marker.write_text(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
+            marker.write_text(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), encoding="utf-8")
         except OSError:
             pass  # cache is only a convenience
     print("\nSELFTEST:", "PASSED" if not problems else "FAILED")

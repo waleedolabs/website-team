@@ -41,6 +41,12 @@ from pathlib import Path
 
 from wt_common import apply_ops, compare, counts, run_suite, run_suite_incremental, run_targeted
 
+for _stream in (sys.stdout, sys.stderr):  # Arabic output must not crash on a Windows (cp125x) console/pipe
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 MAX_PER_TARGET = 3
 MAX_TOTAL = 25
 
