@@ -7,9 +7,12 @@ where every ARG is a plain word or a quoted string, and every path-like ARG stay
 current project folder. One command, nothing else: no cd, no variables, no pipes, no redirection,
 no ;, &&, $(...), backticks, globs or heredocs.
 
+Also approved: Read / Glob / Grep of files inside this plugin's own folder (its reference docs and
+role files), which Claude Code otherwise asks about because they are outside the project folder.
+
 Anything else prints nothing, so Claude Code's normal permission flow (and the user's own
 allow/deny rules) applies unchanged. Any internal error also prints nothing (fail closed to
-"ask"). This hook never denies and never approves other tools.
+"ask"). This hook never denies, and never approves writes or any other tool.
 """
 import json
 import os
@@ -130,19 +133,38 @@ def decide(cmd, cwd, plugin_root):
     return name[:-3]
 
 
+def decide_read(tool, inp, plugin_root):
+    """Read/Glob/Grep confined to the plugin's own folder -> True."""
+    if not plugin_root or not isinstance(inp, dict):
+        return False
+    path = inp.get("file_path") if tool == "Read" else inp.get("path")
+    if not isinstance(path, str) or not path or not is_abs(path) or path.startswith("~") or ".." in path.replace("\\", "/").split("/"):
+        return False
+    if tool in ("Glob", "Grep") and ".." in str(inp.get("pattern", "")):
+        return False
+    if tool == "Glob" and is_abs(str(inp.get("pattern", ""))) and not inside(str(inp["pattern"]), plugin_root):
+        return False
+    return inside(path, plugin_root)
+
+
+def allow(reason):
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse", "permissionDecision": "allow", "permissionDecisionReason": reason}}))
+
+
 def main():
     try:
         data = json.load(sys.stdin)
-        if data.get("tool_name") != "Bash":
-            return
-        cmd = (data.get("tool_input") or {}).get("command", "")
+        tool = data.get("tool_name")
+        inp = data.get("tool_input") or {}
         root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        name = decide(cmd, data.get("cwd", ""), root)
-        if name:
-            print(json.dumps({"hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "allow",
-                "permissionDecisionReason": f"website-team: its own {name}.py script with project-local arguments"}}))
+        if tool == "Bash":
+            name = decide(inp.get("command", ""), data.get("cwd", ""), root)
+            if name:
+                allow(f"website-team: its own {name}.py script with project-local arguments")
+        elif tool in ("Read", "Glob", "Grep"):
+            if decide_read(tool, inp, root):
+                allow("website-team: reading its own plugin files")
     except Exception:
         pass  # never block, never approve on error
 

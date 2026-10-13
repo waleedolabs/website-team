@@ -41,7 +41,7 @@ def diff_files(a, b):
 
 # A. reproducibility
 out = Path(tempfile.mkstemp(suffix=".json")[1])
-subprocess.run([sys.executable, str(SCRIPTS / "run_tests.py"), str(site), "--out", str(out), "--quiet"], check=True)
+subprocess.run([sys.executable, str(SCRIPTS / "run_tests.py"), str(site), "--out", str(out), "--quiet"], check=True, capture_output=True)
 mine = {r["id"]: r["status"] for r in json.loads(out.read_text())["results"]}
 state = json.loads((work / "state.json").read_text())
 rec = {i: r["status"] for i, r in state["results"].items()}

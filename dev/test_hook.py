@@ -22,8 +22,9 @@ CWD = "/proj/salon"
 
 
 def run(cmd, cwd=CWD, tool="Bash", root=PR):
+    ti = cmd if isinstance(cmd, dict) else {"command": cmd}
     inp = {"session_id": "t", "cwd": cwd, "hook_event_name": "PreToolUse", "tool_name": tool,
-           "tool_input": {"command": cmd}}
+           "tool_input": ti}
     env = dict(os.environ, CLAUDE_PLUGIN_ROOT=root)
     p = subprocess.run([sys.executable, str(HOOK)], input=json.dumps(inp), capture_output=True, text=True, env=env)
     if p.returncode != 0 or p.stderr:
@@ -107,8 +108,30 @@ def main():
         r = run(c)
         if r is not None:
             bad.append(("expected no decision", c, r))
-    if run(f'python3 "{S}/run_tests.py" site', tool="Write") is not None:
-        bad.append(("non-Bash tool got a decision", "Write", ""))
+    if run({"file_path": f"{PR}/skills/website-team/references/x.md", "content": "x"}, tool="Write") is not None:
+        bad.append(("Write into the plugin folder got a decision", "Write", ""))
+    if run({"file_path": f"{CWD}/site/index.html", "old_string": "a", "new_string": "b"}, tool="Edit") is not None:
+        bad.append(("Edit got a decision", "Edit", ""))
+    reads_ok = [("Read", {"file_path": f"{PR}/skills/website-team/references/scenarios.md"}),
+                ("Read", {"file_path": f"{PR}/agents/qa-inspector.md"}),
+                ("Glob", {"pattern": "*.md", "path": f"{PR}/skills/website-team/references"}),
+                ("Grep", {"pattern": "visit", "path": f"{PR}/skills/website-team/references"}),
+                ("Read", {"file_path": WIN_ROOT + r"\skills\website-team\references\scenarios.md"})]
+    reads_no = [("Read", {"file_path": "/etc/passwd"}),
+                ("Read", {"file_path": f"{PR}/../../home/u/.ssh/id_rsa"}),
+                ("Read", {"file_path": "/plug/website-team-evil/x.md"}),
+                ("Read", {"file_path": "skills/website-team/SKILL.md"}),
+                ("Glob", {"pattern": "../../**", "path": f"{PR}"}),
+                ("Glob", {"pattern": "/home/**/*.key", "path": f"{PR}"}),
+                ("Grep", {"pattern": "password", "path": "/home"}),
+                ("Read", {"file_path": "~/.ssh/id_rsa"})]
+    for tool, inp in reads_ok:
+        r = run(inp, tool=tool, root=WIN_ROOT if "Users" in str(inp) else PR)
+        if r != "allow":
+            bad.append(("expected read allow", tool, inp, r))
+    for tool, inp in reads_no:
+        if run(inp, tool=tool) is not None:
+            bad.append(("expected read no decision", tool, inp))
     # broken input must never approve or error out
     p = subprocess.run([sys.executable, str(HOOK)], input="not json", capture_output=True, text=True)
     if p.stdout.strip() or p.returncode:
@@ -122,7 +145,7 @@ def main():
                .replace("<name>", "run_tests").replace("<arguments>", "site"))
         if run(c2) != "allow":
             bad.append(("SKILL.md command not approved", c2, None))
-    n = len(ALLOW) + len(WIN_ALLOW) + len(DENY) + 2 + len(skill_cmds)
+    n = len(ALLOW) + len(WIN_ALLOW) + len(DENY) + 3 + len(skill_cmds) + 13
 
     logs = sys.argv[1:]
     old = []

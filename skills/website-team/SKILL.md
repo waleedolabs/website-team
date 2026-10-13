@@ -68,7 +68,7 @@ REPORT.md                final report
 
 ## Step 0: Environment (after Checkpoint 1, before Step 2)
 
-Run `python3 "${CLAUDE_SKILL_DIR}/scripts/check_env.py"` (it also prints the plugin version; record it in `STATUS.md` and mention it in the report). If NOT READY, show the user the printed setup commands (they need approval) and re-check. If it still fails, tell the user plainly that real testing is unavailable here; continue only with design work and mark every technical check as not_run.
+Run `python3 "${CLAUDE_SKILL_DIR}/scripts/check_env.py"` (it also prints the plugin version; record it in `STATUS.md`; `report.py` puts it in the facts). If NOT READY, show the user the printed setup commands (they need approval) and re-check. If it still fails, tell the user plainly that real testing is unavailable here; continue only with design work and mark every technical check as not_run.
 
 Then run `python3 "${CLAUDE_SKILL_DIR}/scripts/selftest.py" --quick --if-needed --log logs/selftest.log` in the foreground. The first time on a machine, it takes about 3 minutes. After that it returns at once, because a pass for this exact plugin code is cached. Record its result line in `STATUS.md`. It proves the tests have no false alarms, catch known bugs one by one, handle tricky and regression cases, run scenarios correctly, and that the committee validator works. If it FAILS, tell the user the tests cannot be trusted here, and do not present test results as verified. `selftest_loop.py` (about 3 minutes) proves every accept/reject rule of the fix loop; run it only when the user asks for full verification.
 

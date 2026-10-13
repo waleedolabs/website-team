@@ -25,7 +25,11 @@ def main():
     b, s = base["results"], state["results"]
     cb, cs = counts(b), counts(s)
 
-    L = ["## الحقائق المسجّلة (مولَّدة آلياً من نتائج الاختبارات)", ""]
+    try:
+        ver = json.loads((Path(__file__).resolve().parents[3] / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
+    except (OSError, ValueError, KeyError, IndexError):
+        ver = "غير معروف"
+    L = ["## الحقائق المسجّلة (مولَّدة آلياً من نتائج الاختبارات)", "", f"- إصدار فريق الموقع: {ver}"]
     L.append(f"- الصفحات المختبَرة: {', '.join(state['pages'])}")
     L.append("- الحالة الأولى مأخوذة من 3 تشغيلات كاملة متطابقة. بعد ذلك، كل فحص تغيّرت نتيجته أُكِّد بثلاث تشغيلات "
              "(تشغيل كامل + تشغيلان موجّهان)، وكل فحص جديد شُغّل 3 مرات. أي نتيجة غير متطابقة تُعلَّم «يحتاج مراجعة».")

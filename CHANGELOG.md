@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.3
+Usability review of real use (too many approval prompts; repeated "not received yet" messages). Evidence: every tool call in three earlier full runs was classified: 23, 30 and 32 shell commands per run each needed an approval, and none of them could ever be covered by an "always allow" rule (all compound: variables, `cd`, pipes, heredocs).
+- **Root cause 1: the coordinator used the shell for everything** (writing pages with heredocs, reading with `cat`/`sed`, editing with inline Python). SKILL.md now sets tool discipline: Read/Glob/Grep to read, Write/Edit to change files, shell only for the plugin's scripts in one fixed form.
+- **Root cause 2: script commands had a different shape every time.** New plugin hook `hooks/approve_scripts.py` approves exactly `python3 "<plugin>/skills/website-team/scripts/<known>.py" <args>` with every path inside the project folder, plus reads of the plugin's own files. Everything else keeps the normal prompt; the hook never denies and never approves writes. `dev/test_hook.py`: 78/78 cases (incl. 29 bypass attempts), 0 of 85 commands from earlier runs approved, and every command written in SKILL.md approved. Confirmed inside Claude Code: canonical command ran without a prompt; the same command with `| tail` or an outside path still asked.
+- **Root cause 3: the self-test ran in the background and its log was polled**, each poll being a new command, a new approval and a "not finished yet" message. It now runs in the foreground after the questions are answered, writes its own log (`--log`), and runs once per plugin code per machine (`--if-needed`, cache keyed by a hash of scripts + fixtures; 2 min 33 s first run, 0.05 s after; changed code re-runs).
+- Inspector: no ad-hoc servers or probe scripts; suspicions become checks.
+- `run_tests.py --quiet` now prints counts plus non-pass lines (it printed nothing, which led to an ad-hoc command to read the results).
+- Fix proposals are validated before anything is applied, with usable messages (e.g. `write` with `content` instead of `text`, found in a real run). 4 new loop tests (58/58).
+- Clearer direction presentation (bet, audience, first impression, health, how they differ); questions never repeat what the request or STATUS.md already says; one line advising "allow edits for this session".
+- `check_env.py` and the report facts show the plugin version.
+- Interactive run on the installed build (gym site, default permission mode, edits allowed for the session): 2 approval requests in the whole run, both traced to causes fixed in this version (the quiet output; plugin-file reads), versus 23–32 per run before.
+
 ## 0.2.2
 - Found by the first real user run (Windows, Claude desktop app): the coordinator launched the committee as background tasks and answered every background/hook notification with a line of text ("still waiting for the inspector"), flooding the chat. Step 4 now launches the three reviewers together as foreground subagents and waits silently; one failed member is relaunched once. General rule: no progress chatter, talk only at checkpoints, decisions, failures and the end.
 

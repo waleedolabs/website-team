@@ -2,7 +2,7 @@
 """Generic website test runner (Playwright + Chromium). No AI involved.
 
 Usage:
-  python3 run_tests.py SITE_DIR [--out results.json] [--shots DIR] [--quiet]
+  python3 run_tests.py SITE_DIR [--out results.json] [--shots DIR] [--quiet: counts + non-pass lines only]
 
 Optional config: SITE_DIR/site-tests.json
   {
@@ -865,12 +865,13 @@ def main():
     if a.out:
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    if not a.quiet:
-        counts = {}
-        for r in data["results"]:
-            counts[r["status"]] = counts.get(r["status"], 0) + 1
-        print(json.dumps(counts))
-        for r in data["results"]:
+    counts = {}
+    for r in data["results"]:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    print(json.dumps(counts))
+    for r in data["results"]:
+        # --quiet: only what needs attention (everything except pass)
+        if not a.quiet or r["status"] != "pass":
             print(f'{r["status"]:12} {r["id"][:45]:45} | {r["detail"]}')
     return 0
 
