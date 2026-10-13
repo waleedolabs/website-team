@@ -91,6 +91,32 @@ def unit_tests():
         ok = (not ok_) and all(m in msg for m in must) and not (d / "y.html").exists() and not (d / "x.html").exists()
         ok_all.append(ok)
         print(f"{'OK  ' if ok else 'FAIL'} unit: {name} (got {msg!r})")
+    # sync_site.py: copy in, copy back only verified changes, never the test contract, refuse if the original changed
+    import shutil as _sh
+    def sync(*args):
+        return subprocess.run([sys.executable, str(HERE / "sync_site.py"), *args], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+    for name, tamper, want_applied in [("apply copies only the verified change back", False, True),
+                                       ("apply refuses when the user's files changed meanwhile", True, False)]:
+        root = Path(_tf.mkdtemp(prefix="wt-sync-"))
+        src = root / "mysite"
+        (src / "css").mkdir(parents=True)
+        (src / "index.html").write_text("<p>قديم</p>", encoding="utf-8")
+        (src / "css" / "a.css").write_text("p{}", encoding="utf-8")
+        proj = src / "website-team"
+        r1 = sync("prepare", "--from", str(src), "--project", str(proj))
+        (proj / "site" / "site-tests.json").write_text("{}", encoding="utf-8")
+        _sh.copytree(proj / "site", proj / "work" / "versions" / "v0")  # what init records
+        (proj / "site" / "index.html").write_text("<p>جديد</p>", encoding="utf-8")  # an accepted fix
+        if tamper:
+            (src / "css" / "a.css").write_text("p{color:red}", encoding="utf-8")
+        r2 = sync("apply", "--project", str(proj))
+        applied = (src / "index.html").read_text(encoding="utf-8") == "<p>جديد</p>"
+        ok = (r1.returncode == 0 and applied == want_applied and not (src / "site-tests.json").exists()
+              and (r2.returncode == 0) == want_applied and (src / "css" / "a.css").exists())
+        ok_all.append(ok)
+        print(f"{'OK  ' if ok else 'FAIL'} unit: {name} ({(r2.stdout or r2.stderr).strip()[:90]!r})")
+        _sh.rmtree(root, ignore_errors=True)
     return ok_all
 
 

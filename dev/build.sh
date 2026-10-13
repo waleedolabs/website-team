@@ -6,7 +6,6 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd); OUT=${1:-$ROOT/..}
 find "$ROOT" -name __pycache__ -type d -prune -exec rm -rf {} +
 cp "$ROOT"/agents/*.md "$ROOT"/skills/website-team/roles/
 python3 "$ROOT/dev/check_plugin.py" "$ROOT"
-python3 "$ROOT/dev/test_hook.py" | tail -1
 claude plugin validate "$ROOT/.claude-plugin/plugin.json" | tail -1
 V=$(python3 -c "import json;print(json.load(open('$ROOT/.claude-plugin/plugin.json'))['version'])")
 F="$OUT/website-team-$V.plugin"; rm -f "$F"

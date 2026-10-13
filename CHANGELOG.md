@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+Redesign requested by the user: a team that works in the background only when asked, instead of taking over the conversation.
+- **Only on request.** The skill is used only when asked by name ("فريق الموقع", "website team", /website-team); ordinary website requests are left to Claude.
+- **Nothing always-on.** The approval hook from 0.2.3/0.2.4 is removed: it ran on every command in every session. `dev/check_plugin.py` now fails if a `hooks/` folder exists. (Trade-off: the plugin's scripts ask for approval again, as normal commands.)
+- **Reviews an existing site.** No questions, no three directions, no checkpoints. New `scripts/sync_site.py`: copies the site into `website-team/site`, and at the end copies back only the verified changes (never `site-tests.json`), refusing if the user's files changed in the meantime. 2 new loop tests.
+- **Content is never changed on its own** (texts, prices, contact data, removals): these become suggestions.
+- **One very short final message** (at most 6 lines: checked, proven problems, fixed and applied, open, suggestions, report path). Details stay in `website-team/REPORT.md`. The independent auditor subagent was dropped to save usage; the deterministic audit (`audit_project.py`) still has to be CLEAN before anything is copied back.
+
 ## 0.2.4
 From the first real run of 0.2.3 on Windows (flower shop).
 - **Repeated "automatic notice" messages: caused by another plugin.** security-guidance on that machine is missing `security_reminder_hook.py`; its Stop hook (asyncRewake) fails after every reply and wakes the model again, so the chat filled with "this is an automatic notice, still waiting for your choice". Not fixable inside website-team; the user has to disable or reinstall that plugin. SKILL.md: say so once, then one-line replies only.

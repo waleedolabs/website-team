@@ -84,17 +84,7 @@ for cmd in re.findall(r"`(python3? [^`]*scripts/[^`]*)`", skill_text):
     bare = re.sub(r"<\w+>", "x", cmd).replace("${CLAUDE_SKILL_DIR}", "D")
     check(not re.search(r"[;|&<>`$]", bare), f"SKILL.md command has shell operators: {cmd[:80]}")
 
-hj = ROOT / "hooks" / "hooks.json"
-if check(hj.exists(), "missing hooks/hooks.json"):
-    try:
-        h = json.loads(hj.read_text(encoding="utf-8"))
-        cmds = [x["command"] for e in h["hooks"]["PreToolUse"] for x in e["hooks"]]
-        check(all("${CLAUDE_PLUGIN_ROOT}/hooks/approve_scripts.py" in c and "run-python.sh" in c for c in cmds), "hooks.json command path")
-        check((ROOT / "hooks" / "run-python.sh").exists(), "missing hooks/run-python.sh")
-        check((ROOT / "hooks" / "approve_scripts.py").exists(), "missing hooks/approve_scripts.py")
-        print("hooks: OK", [e["matcher"] for e in h["hooks"]["PreToolUse"]])
-    except (ValueError, KeyError) as e:
-        check(False, f"hooks.json invalid: {e}")
+check(not (ROOT / "hooks").exists(), "hooks/ must not exist: the plugin must not run in sessions that did not ask for it")
 
 for py in sorted((SKILL / "scripts").glob("*.py")):
     try:
