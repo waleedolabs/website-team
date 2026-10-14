@@ -1,69 +1,52 @@
 ---
 name: website-team
 description: >-
-  Quietly reviews and fixes a website that already exists - a four-member committee
-  (advocate, critic, technical inspector, chair) reviews it, every fix is verified by real
-  browser tests with automatic rollback, and the user gets a very short summary at the end.
-  Use ONLY when the user explicitly asks for it by name - "website team", "the website team",
-  "فريق الموقع", "خلي فريق الموقع يراجع", "/website-team". Do not use it for ordinary
-  requests to build, design or edit a website; Claude handles those normally.
+  Quickly checks a website that already exists with real browser tests, points to the exact
+  lines of every problem so they can be fixed, then re-tests to prove the fixes and catch anything
+  that broke. Ends with a very short summary. Use ONLY when the user explicitly asks for it by name -
+  "website team", "the website team", "فريق الموقع", "خلي فريق الموقع يراجع", "/website-team".
+  Do not use it for ordinary requests to build, design or edit a website; Claude handles those normally.
 ---
 
-# Website Team (background review)
+# Website Team (fast check)
 
-You run a review team **in the background** on a website that already exists (usually the one Claude just built for the user in the normal way). The user does not want the conversation taken over: **no questions, no design directions, no progress messages.** Work silently, then give one very short summary. Everything detailed goes into files.
+Two parts work together: **you review the site's code yourself** like a careful senior developer, and the scanner (real browser tests) catches what reading misses and proves the result. Work quietly: no progress messages, no questions, no plans. Aim for about six tool calls.
 
-`${CLAUDE_SKILL_DIR}` is this skill's base directory. If it appears literally instead of a path, write the absolute path yourself. Scripts: `${CLAUDE_SKILL_DIR}/scripts/`.
+`${CLAUDE_SKILL_DIR}` is this skill's folder (if it appears literally, write the absolute path). Run scripts as `python3 "${CLAUDE_SKILL_DIR}/scripts/scan.py" ...` (if `python3` fails, use `python` or the full path to Python). One command per call, no `cd`/pipes.
 
-## Rules
-
-1. Never call something working without a `pass` from the test runner. Statuses: pass / fail / needs_review / not_run.
-2. Only the fix loop changes the site: `verify_fix.py try`. A fix is kept only if tests prove it helped and broke nothing.
-3. Never change content (texts, prices, names, contact data), remove features, or touch real data on your own. Those become **suggestions** in the summary; the user decides later.
-4. Never hide a problem: rejected fixes, open failures and untested areas go into `REPORT.md`.
-5. Caps (enforced by the script): 3 attempts per check, 25 in total, one committee round.
-6. Do not talk while working: no status updates, no SendUserMessage or similar tool, no text between tool calls, from the moment this skill starts until step 5 (the user explicitly does not want progress messages, even if your environment normally encourages them). Do not answer background or hook notifications with explanations. If another plugin's hook keeps waking you with the same error, say once, in one line, which plugin is broken; afterwards reply with one short line only.
-7. Never retype a committee report. Members write their own files.
-
-Tools: read with Read/Glob/Grep and write with Write/Edit. Use the shell only for the plugin scripts, one per command, in the form `python3 "${CLAUDE_SKILL_DIR}/scripts/<name>.py" <arguments>` (if `python3` fails, use `python` or the full path to the Python executable). No `cd`, pipes or redirection, and nothing in the background. Use the longest shell timeout (600000 ms) for `selftest`, `try` and `add-check`.
+If the user explicitly asks for the **full** team / committee, follow `${CLAUDE_SKILL_DIR}/references/full-committee.md` instead.
 
 ## Steps
 
-**0. Find the site.** It is the site from this conversation, or the folder the user named. If there is no site, say so in one line and stop. Team folder: `website-team/` next to the site's files (in the same parent folder, or inside the site folder if that is the working directory). Every path below is inside the team folder: put that prefix on it in commands (for example `website-team/site`).
+1. **Scan.** SITE = the site's folder from this conversation (or the one the user named); if there is none, say so in one line and stop.
+   `python3 "${CLAUDE_SKILL_DIR}/scripts/scan.py" scan SITE --state SITE/website-team`
+   It prints numbered problems, each with `where` (file:line and the line) and `fix`. If the script fails because Python/Playwright is missing, say in one line what to install, then continue with step 2 only and say in the summary that nothing was browser-tested.
 
-**1. Prepare** (silently):
-- `python3 "${CLAUDE_SKILL_DIR}/scripts/check_env.py"`. If NOT READY, tell the user in one line that real testing is unavailable and what to install, then stop.
-- `python3 "${CLAUDE_SKILL_DIR}/scripts/selftest.py" --quick --if-needed --log website-team/logs/selftest.log`. The first run on a machine takes about 3 minutes; later runs are cached. If it fails, rerun once. If the rerun passes, note "unstable" in the report; if it fails again, stop and say the tests cannot be trusted here.
-- `python3 "${CLAUDE_SKILL_DIR}/scripts/sync_site.py" prepare --from SITE_FOLDER --project website-team` (SITE_FOLDER = the site's folder) copies the site into `website-team/site`.
-- Write `website-team/brief.md` from the conversation: what the site is for, its main action, required functions, and your assumptions. Do not ask the user.
-- Write `website-team/site/site-tests.json` declaring where forms submit (simulated if there is no real backend, e.g. `{"backend": {"POST /api/contact": 200}}`).
-- `python3 "${CLAUDE_SKILL_DIR}/scripts/verify_fix.py" init --site website-team/site --work website-team/work`
-- `python3 "${CLAUDE_SKILL_DIR}/scripts/run_tests.py" website-team/site --shots website-team/committee/shots --shots-only`
+2. **Review the code yourself.** Read the site's HTML/CSS/JS files once (Read; skip images and libraries). The scanner cannot see logic, so look for: wrong calculations or conditions, filters/tabs/sorting showing the wrong items, wrong phone/WhatsApp/email link formats, inputs that accept invalid data, features hidden or unusable on mobile, state that never resets, text that contradicts what the code does.
 
-**2. Committee.** Launch the advocate, critic and inspector together in one message as normal (foreground) subagents (plugin agents `site-advocate`, `design-critic`, `qa-inspector`; otherwise general-purpose subagents given the role file from `${CLAUDE_SKILL_DIR}/roles/`). Give each the absolute paths of `brief.md`, `site/`, `committee/shots/` and `work/state.json`; give the inspector also the team folder and the scripts folder. Give each its output path (`committee/advocate.md`, `critic.md`, `inspector.md`), and never another member's report. Then launch the chair (`committee-chair`) with the three report paths, the brief and the state; it writes `committee/chair.md` and `committee/plan.json`. Then run `python3 "${CLAUDE_SKILL_DIR}/scripts/validate_committee.py" --project website-team`; if it says INVALID, the named member rewrites its own file.
+3. **Fix** every scanner problem (following its `fix` line) and every real bug you found, with small edits:
+   - Never change prices, names, contact details or texts, and never delete content, links, buttons or sections.
+   - `[ASK USER]` items: still fix them now with the smallest honest change (replacing a false "sent" message is required, not a content change); keep the real decision for the summary.
+   - Fix bugs, do not redesign or restyle.
 
-**3. Prove, then fix.** Formats: `${CLAUDE_SKILL_DIR}/references/scenarios.md`.
-- Write each of the chair's `checks_to_add` as `website-team/checks/<id>.json` (the *correct* behaviour), then add them all in one command: `python3 "${CLAUDE_SKILL_DIR}/scripts/verify_fix.py" add-check --site website-team/site --work website-team/work --scenario website-team/checks/a.json website-team/checks/b.json`. FAIL means the problem is proven; PASS means the suspicion was wrong. If a form check cannot represent real use, declare `form_setup`/`form_values` the same way. If a check was written wrongly, add a corrected one and `retire-check` the old one with a reason.
-- For each plan item in order (skip items needing approval, rule 3), write the smallest change as `website-team/proposals/NN-name.json`, e.g. `{"title": "...", "rationale": "...", "kind": "fix", "targets": ["scenario:x"], "needs_user_approval": false, "ops": [{"op": "replace", "file": "index.html", "old": "exact unique text", "new": "replacement"}]}` (ops: `replace`, `create`/`write` with `text`, `delete`; `kind: "design"` only has to break nothing). Then run `python3 "${CLAUDE_SKILL_DIR}/scripts/verify_fix.py" try --site website-team/site --work website-team/work --proposal website-team/proposals/NN-name.json`. If rejected, try once more with a different approach or leave the item open.
+4. **Recheck.** `python3 "${CLAUDE_SKILL_DIR}/scripts/scan.py" recheck SITE --state SITE/website-team`
+   - BROKEN BY THE EDIT: fix it, or put the file back with `scan.py restore SITE --state SITE/website-team FILE`.
+   - NEW or STILL OPEN problems: fix what you can, then recheck **once more** (at most two rechecks in total).
+   - "no longer tested": you may have deleted something; restore it.
 
-**4. Finish.**
-- `python3 "${CLAUDE_SKILL_DIR}/scripts/report.py" --work website-team/work --out website-team/work/facts.md`. Write `website-team/REPORT.md` following `${CLAUDE_SKILL_DIR}/references/report-template.md`, with the facts pasted unchanged.
-- `python3 "${CLAUDE_SKILL_DIR}/scripts/audit_project.py" website-team`. It must say CLEAN; otherwise put the problem in the report and do not apply.
-- If the audit is CLEAN and at least one fix was accepted: `python3 "${CLAUDE_SKILL_DIR}/scripts/sync_site.py" apply --project website-team`. This copies only the verified changes back into the user's site. It refuses if the user's files changed in the meantime.
-
-**5. The only message to the user:** at most 6 lines in the user's language, each under 15 words, with numbers taken from the facts. No explanations, no caveats, no lists of what was not tested (those are in the report):
+5. **Summary**: the only message, in the user's language, at most 6 lines, scanner numbers taken from the last RECHECK line, nothing else:
 
 ```
 فريق الموقع خلص:
-- فحص: <N> فحص، و<M> مشكلة مثبتة
-- صلّح: <K> (طُبّقت على موقعك) / <list in 2–4 words each>
-- باقي: <open count> <very short>
-- اقتراحات بتحتاج موافقتك: <count> (بالتقرير)
-التفاصيل: website-team/REPORT.md
+- فحص: <N> مشكلة
+- صلّح: <proven fixed> (مثبتة بالاختبار)
+- ومن مراجعة الكود: <count> <2-4 words each> (ما بيثبتها الفحص الآلي)
+- باقي: <open> <2-4 words each, or "ولا شي">
+- بدها قرارك: <the ASK USER decisions, very short, or "ولا شي">
 ```
 
-If the changes were not applied (audit not clean, or files changed), say so in that same message, in one line.
+Never call a scanner problem fixed unless the recheck says so; bugs found by reading are reported as code-review fixes, not as test-proven. The backup of the original files is in `SITE/website-team/backup`.
 
-## What the tests cover
+## What the scan covers
 
-Per page: loading, JS errors, buttons, forms (submits to the declared endpoint; flags fake "thank you" forms), links and anchors, images and alt text, contrast (WCAG AA), labels, `lang`, `title`, viewport, horizontal scrolling at 375px. Custom scenarios cover site-specific behaviour (cart totals, validation, double submission, network failure, cross-page flows). Not covered, always reported as not_run: performance, full accessibility audit, security, other browsers, real backend, external links (for example WhatsApp).
+Per page: loading, JS errors, buttons that do nothing or throw, forms (flags fake "thank you" forms that send nothing), broken links and anchors, image alt text, contrast (WCAG AA), field labels, `lang`, `dir="rtl"` for Arabic, `title`, viewport, horizontal scrolling at 375px. Not covered: design taste, wording, performance, security, other browsers, real backends, external links.

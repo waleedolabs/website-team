@@ -1,7 +1,7 @@
 {
   "name": "website-team",
-  "version": "0.3.0",
-  "description": "A background review team for an existing website: a four-member committee (advocate, critic, technical inspector, chair) reviews the site, and every fix is verified by real browser tests with automatic rollback, ending in an honest report.",
+  "version": "0.4.0",
+  "description": "Fast website check on request: real browser tests point to the exact lines of every problem, Claude fixes them, a recheck proves the fixes. Full four-member committee available on explicit request.",
   "author": {
     "name": "Waleed Arnaout"
   },

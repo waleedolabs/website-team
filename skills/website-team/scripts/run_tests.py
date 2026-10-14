@@ -439,6 +439,7 @@ def check_page(cx, base, page_name, results, skip, form_setup=None, form_values=
                         return ['aria-pressed', 'aria-selected', 'aria-checked'].some(a => e.getAttribute(a) === 'true')
                                || (e.getAttribute('aria-current') || 'false') !== 'false'; }""")
                     before = page.evaluate(SNAPSHOT_JS)
+                    errs.clear()  # load-time errors are reported by the console check, not blamed on the button
                     page.click("[data-wt-target]")
                     page.wait_for_timeout(400)
                     after = page.evaluate(SNAPSHOT_JS)
@@ -507,6 +508,7 @@ def check_page(cx, base, page_name, results, skip, form_setup=None, form_values=
                         continue
                     before = page.evaluate(SNAPSHOT_JS)
                     reqs.clear()
+                    errs.clear()  # load-time errors are reported by the console check, not blamed on the form
                     if meta["hasSubmit"]:
                         page.click("[data-wt-submit]")
                     else:
@@ -768,7 +770,7 @@ def find_pages(site, cfg):
     if cfg.get("pages"):
         return cfg["pages"][:MAX_PAGES]
     pages = sorted(str(p.relative_to(site)) for p in site.rglob("*.html")
-                   if not any(part.startswith(".") or part == "node_modules" for part in p.relative_to(site).parts))
+                   if not any(part.startswith(".") or part in ("node_modules", "website-team") for part in p.relative_to(site).parts))
     if "index.html" in pages:
         pages.remove("index.html")
         pages.insert(0, "index.html")
