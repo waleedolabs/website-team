@@ -19,7 +19,7 @@ If the user explicitly asks for the **full** team / committee, follow `${CLAUDE_
 ## Steps
 
 1. **Scan.** SITE = the site's folder from this conversation (or the one the user named); if there is none, say so in one line and stop.
-   `python3 "${CLAUDE_SKILL_DIR}/scripts/scan.py" scan SITE --state SITE/website-team`
+   `python3 "${CLAUDE_SKILL_DIR}/scripts/scan.py" scan SITE --state SITE/.website-team`
    It prints numbered problems, each with `where` (file:line and the line) and `fix`. If the script fails because Python/Playwright is missing, say in one line what to install, then continue with step 2 only and say in the summary that nothing was browser-tested.
 
 2. **Review the code yourself.** Read the site's HTML/CSS/JS files once (Read; skip images and libraries). The scanner cannot see logic, so look for: wrong calculations or conditions, filters/tabs/sorting showing the wrong items, wrong phone/WhatsApp/email link formats, inputs that accept invalid data, features hidden or unusable on mobile, state that never resets, text that contradicts what the code does.
@@ -29,12 +29,12 @@ If the user explicitly asks for the **full** team / committee, follow `${CLAUDE_
    - `[ASK USER]` items: still fix them now with the smallest honest change (replacing a false "sent" message is required, not a content change); keep the real decision for the summary.
    - Fix bugs, do not redesign or restyle.
 
-4. **Recheck.** `python3 "${CLAUDE_SKILL_DIR}/scripts/scan.py" recheck SITE --state SITE/website-team`
-   - BROKEN BY THE EDIT: fix it, or put the file back with `scan.py restore SITE --state SITE/website-team FILE`.
+4. **Recheck.** `python3 "${CLAUDE_SKILL_DIR}/scripts/scan.py" recheck SITE --state SITE/.website-team`
+   - BROKEN BY THE EDIT: fix it, or put the file back with `scan.py restore SITE --state SITE/.website-team FILE`.
    - NEW or STILL OPEN problems: fix what you can, then recheck **once more** (at most two rechecks in total).
    - "no longer tested": you may have deleted something; restore it.
 
-5. **Summary**: the only message, in the user's language, at most 6 lines, scanner numbers taken from the last RECHECK line, nothing else:
+5. **Summary**: the only message, in the user's language, at most 7 lines, scanner numbers taken from the last RECHECK line, nothing else:
 
 ```
 فريق الموقع خلص:
@@ -43,9 +43,10 @@ If the user explicitly asks for the **full** team / committee, follow `${CLAUDE_
 - ومن مراجعة الكود: <count> <2-4 words each> (ما بيثبتها الفحص الآلي)
 - باقي: <open> <2-4 words each, or "ولا شي">
 - بدها قرارك: <the ASK USER decisions, very short, or "ولا شي">
+- قبل ما ترفع الموقع: احذف مجلد .website-team (فيه النسخة الاحتياطية)
 ```
 
-Never call a scanner problem fixed unless the recheck says so; bugs found by reading are reported as code-review fixes, not as test-proven. The backup of the original files is in `SITE/website-team/backup`.
+Never call a scanner problem fixed unless the recheck says so; bugs found by reading are reported as code-review fixes, not as test-proven. The backup of the original files is in `SITE/.website-team/backup`.
 
 ## What the scan covers
 

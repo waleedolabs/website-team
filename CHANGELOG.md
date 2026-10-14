@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+Redesign for low usage. Measured on the same machine: the old committee flow used ~1.1M cache-read tokens in the main session alone (and never finished a run); plain Claude ~0.15M; this version ~0.2-0.3M, about 40-50 s.
+- **Fast mode is the default.** New `scripts/scan.py` (scan / recheck / restore): real-browser findings with file:line and a fix direction; Claude reviews the code itself and fixes; the recheck proves fixed / still open / broken-by-the-edit and warns when something was removed. Backup in `<site>/.website-team`.
+- **Full committee only on request** ("الفريق الكامل"): the old procedure moved to `references/full-committee.md`. Not re-measured in this version.
+- `run_tests.py`: a JS error at page load is no longer blamed on every button/form (it is reported once by the console check), so a button that really does nothing and a form that shows success without sending are now reported as such. State folder is excluded from page discovery.
+- New `scan_selftest.py` (11 checks). Existing tests still pass (loop 60/60, selftest).
+- **Benchmarks (honest):** on a site with 10 defects unknown to the author, plain Claude fixed 10/10 and this version 10/10 (48 s vs 24 s). On an earlier blind site: 8/10 vs 9/10 after a first version scored 4/10 because it forbade fixing anything the scanner had not reported. The skill does not find more defects than plain Claude; it adds browser proof, rollback, no content removal and no false "sent" messages.
+- Untested: Windows, large sites, framework-built sites, the full committee in this version.
+
 ## 0.3.0
 Redesign requested by the user: a team that works in the background only when asked, instead of taking over the conversation.
 - **Only on request.** The skill is used only when asked by name ("فريق الموقع", "website team", /website-team); ordinary website requests are left to Claude.

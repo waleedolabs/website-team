@@ -38,13 +38,13 @@ def main():
     site = tmp / "site"
     site.mkdir()
     (site / "index.html").write_text(PAGE, encoding="utf-8")
-    st = site / "website-team"
+    st = site / ".website-team"
     out = run("scan", str(site), "--state", str(st))
     check("scan finds broken anchor with its line", "link:index.html:#contactt" in out and "index.html:5:" in out, out)
     check("scan finds missing dir=rtl", "dir:index.html" in out, out)
     check("scan finds contrast with CSS line", "contrast:index.html" in out and ".note{color:#bbb}" in out, out)
     check("backup made", (st / "backup" / "index.html").is_file())
-    check("state folder is not scanned as a page", ":website-team/" not in out, out)
+    check("state folder is not scanned as a page", ":.website-team/" not in out and ":website-team/" not in out, out)
 
     t = PAGE.replace("#contactt", "#contact").replace("<html>", '<html lang="ar" dir="rtl">')
     (site / "index.html").write_text(t, encoding="utf-8")
