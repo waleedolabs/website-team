@@ -9,6 +9,7 @@ It never edits the site. Claude fixes; `recheck` proves the fixes and catches an
 Output is short on purpose: each finding has WHERE (file:line and the line itself) and the FIX direction.
 """
 import argparse
+import os
 import json
 import re
 import shutil
@@ -23,6 +24,7 @@ for _s in (sys.stdout, sys.stderr):
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_tests  # noqa: E402
+import sitemap  # noqa: E402
 
 SRC_EXT = (".html", ".htm", ".css", ".js")
 SKIP_DIRS = {"node_modules", "__pycache__", "website-team"}
@@ -35,6 +37,7 @@ HINTS = {
     "lang": 'Add the page language on <html>, e.g. lang="ar" (and dir="rtl" for Arabic).',
     "dir": 'Arabic/Hebrew text without dir="rtl": add dir="rtl" on <html>.',
     "title": "Add a meaningful <title> (site name + purpose) in <head>.",
+    "charset": 'Add <meta charset="utf-8"> as the first line inside <head>.',
     "alt": 'Add a short alt describing the image (alt="" only if purely decorative).',
     "contrast": "Darken the text colour (or change the background) until the ratio is at least 4.5:1. Keep the text.",
     "labels": "Give each field a visible <label for=...> or an aria-label. Keep the placeholder.",
@@ -78,7 +81,7 @@ def needles(r):
     k = kind_of(r)
     parts = cid.split(":", 2)
     out = []
-    if k in ("viewport", "title"):
+    if k in ("viewport", "title", "charset"):
         out = ["<head", "<title"]
     elif k in ("lang", "dir"):
         out = ["<html"]
@@ -145,6 +148,10 @@ def rtl_findings(site, pages):
         m = re.search(r"<html[^>]*>", t, re.I)
         tag = m.group(0) if m else ""
         body = re.sub(r"<[^>]+>", " ", t)
+        if not re.search(r"<meta[^>]+charset", t, re.I):
+            out.append({"id": f"charset:{pg}", "name": f"{pg}: declares its encoding", "status": "fail",
+                        "detail": "no <meta charset=\"utf-8\">: Arabic/accented text can show as garbage (Ø¨...) on some servers",
+                        "evidence": None})
         if len(RTL_CHARS.findall(body)) > 20:
             ok = bool(re.search(r'dir\s*=\s*["\']?rtl', tag, re.I))
             out.append({"id": f"dir:{pg}", "name": f"{pg}: right-to-left", "status": "pass" if ok else "fail",
@@ -194,8 +201,23 @@ def show(site, rs, files, start=1):
         print(f"   fix: {HINTS.get(k, 'Fix so this check passes, without removing content.')}")
 
 
+class Tee:
+    def __init__(self, path):
+        self.f, self.out = open(path, "w", encoding="utf-8"), sys.stdout
+
+    def write(self, s):
+        self.f.write(s)
+        return self.out.write(s)
+
+    def flush(self):
+        self.f.flush()
+        self.out.flush()
+
+
 def cmd_scan(a):
     site, st = Path(a.site).resolve(), Path(a.state).resolve()
+    st.mkdir(parents=True, exist_ok=True)
+    sys.stdout = Tee(st / "scan.txt")
     data, res = collect(site)
     st.mkdir(parents=True, exist_ok=True)
     bk = st / "backup"
@@ -221,6 +243,8 @@ def cmd_scan(a):
           f"Backup: {bk}")
     show(site, ps, site_files(site))
     untested_line(res)
+    files, reused = sitemap.build(site, st / "map.json")
+    print("\n" + sitemap.render(files, reused))
     print("\nRULES: fix with small edits; never change prices/names/contact data or delete content; "
           "[ASK USER] items: do the honest minimal fix and list the decision for the user. Then run recheck.")
 
@@ -300,4 +324,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except BrokenPipeError:  # output was cut (e.g. piped into head): results are already saved in the state folder
+        try:
+            sys.stdout = open(os.devnull, "w")
+        except OSError:
+            pass

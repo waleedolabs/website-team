@@ -61,7 +61,7 @@ if check(fm is not None, f"SKILL.md: {err}"):
 
 KNOWN_TOOLS = {"Read", "Write", "Edit", "Glob", "Grep", "Bash"}
 agents = sorted((ROOT / "agents").glob("*.md"))
-check(len(agents) == 4, f"expected 4 agents, found {len(agents)}")
+check(len(agents) == 5, f"expected 5 agents (4 classic + site-critic-lite), found {len(agents)}")
 for a in agents:
     fm, err = frontmatter(a)
     if not check(fm is not None, f"{a.name}: {err}"):

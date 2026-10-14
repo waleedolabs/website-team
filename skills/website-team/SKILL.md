@@ -14,15 +14,15 @@ Two parts work together: **you review the site's code yourself** like a careful 
 
 `${CLAUDE_SKILL_DIR}` is this skill's folder (if it appears literally, write the absolute path). Run scripts as `python3 "${CLAUDE_SKILL_DIR}/scripts/scan.py" ...` (if `python3` fails, use `python` or the full path to Python). One command per call, no `cd`/pipes.
 
-If the user explicitly asks for the **full** team / committee, follow `${CLAUDE_SKILL_DIR}/references/full-committee.md` instead.
+If the user explicitly asks for the **full** team ("الكامل", full committee), follow `${CLAUDE_SKILL_DIR}/references/full-committee.md` instead.
 
 ## Steps
 
 1. **Scan.** SITE = the site's folder from this conversation (or the one the user named); if there is none, say so in one line and stop.
    `python3 "${CLAUDE_SKILL_DIR}/scripts/scan.py" scan SITE --state SITE/.website-team`
-   It prints numbered problems, each with `where` (file:line and the line) and `fix`. If the script fails because Python/Playwright is missing, say in one line what to install, then continue with step 2 only and say in the summary that nothing was browser-tested.
+   It prints numbered problems, each with `where` (file:line and the line) and `fix`, then a **MAP** of the site: which element triggers which function (file:lines), forms and where they send, functions worth reading, things shown only on hover. If the script fails because Python/Playwright is missing, say in one line what to install, then continue with step 2 only and say in the summary that nothing was browser-tested.
 
-2. **Review the code yourself.** Read the site's HTML/CSS/JS files once (Read; skip images and libraries). The scanner cannot see logic, so look for: wrong calculations or conditions, filters/tabs/sorting showing the wrong items, wrong phone/WhatsApp/email link formats, inputs that accept invalid data, features hidden or unusable on mobile, state that never resets, text that contradicts what the code does.
+2. **Review the code yourself, guided by the MAP.** If the MAP says the sources are under 60 KB, read the HTML/CSS/JS files once in full. If larger, do not read everything: read the functions under FUNCTIONS WORTH READING, the handlers of the main buttons and forms, anything marked NO HANDLER FOUND or SHOWN ONLY ON :hover, and the lines of each scanner problem (use Read with offset/limit). The scanner cannot see logic, so look for: wrong calculations or conditions, filters/tabs/sorting showing the wrong items, wrong phone/WhatsApp/email link formats, inputs that accept invalid data, features hidden or unusable on mobile, state that never resets, text that contradicts what the code does.
 
 3. **Fix** every scanner problem (following its `fix` line) and every real bug you found, with small edits:
    - Never change prices, names, contact details or texts, and never delete content, links, buttons or sections.

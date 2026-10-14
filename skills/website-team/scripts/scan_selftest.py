@@ -75,10 +75,36 @@ def main():
     check("web fonts are not a problem", "external:" not in out, out)
     check("hidden-until-later button is grouped as not testable", "NOT TESTABLE (1)" in out and "btn:" not in out.split("NOT TESTABLE")[0], out)
 
+    # site map
+    m = tmp / "mapsite"
+    m.mkdir()
+    (m / "index.html").write_text("""<!doctype html><html lang="ar" dir="rtl"><head><title>خريطة</title>
+<style>.bar .tools{display:none}.bar:hover .tools{display:flex}</style></head><body>
+<div class="bar"><div class="tools"><button class="t">ثيم</button></div></div>
+<button id="calc">احسب</button><button class="tab" data-k="a">أ</button><button class="tab" data-k="b">ب</button>
+<form id="book"><input name="phone" required><button type="submit">احجز</button></form>
+<script src="app.js"></script></body></html>""", encoding="utf-8")
+    (m / "app.js").write_text("""function total(n){ return n * 0.5; }
+document.getElementById('calc').addEventListener('click', function(){ document.getElementById('out').textContent = total(10); });
+document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => show(btn.dataset.k)));
+function show(k){ document.querySelectorAll('.card').forEach(c => c.classList.toggle('hidden', c.dataset.k !== k)); }
+document.getElementById('book').addEventListener('submit', e => { e.preventDefault(); alert('تم استلام طلبك'); });
+""", encoding="utf-8")
+    out = run("scan", str(m), "--state", str(m / ".website-team"))
+    check("map links a button to its handler and flags calc", "#calc" in out and "total app.js:1" in out and "calc" in out, out)
+    check("map links forEach-wired tabs to their handler", out.count("(inline app.js:3)") >= 2, out)
+    check("map lists functions worth reading", "FUNCTIONS WORTH READING" in out and "show app.js:4" in out, out)
+    check("map finds hover-only reveal", "SHOWN ONLY ON :hover" in out and ".bar:hover .tools" in out, out)
+    check("map form handler flagged as fake success", "form #book" in out and "fake-success" in out, out)
+    check("missing charset is reported", "charset:index.html" in out, out)
+    check("scan output saved for a subagent", (m / ".website-team" / "scan.txt").is_file())
+    out = run("scan", str(m), "--state", str(m / ".website-team"))
+    check("second scan reuses the map cache", "2 unchanged, from cache" in out, out)
+
     out = run("restore", str(site), "--state", str(st), "index.html")
     check("restore puts the original back", (site / "index.html").read_text(encoding="utf-8") == PAGE, out)
     shutil.rmtree(tmp, ignore_errors=True)
-    print(f"\nSCAN SELFTEST: {'PASSED' if not fails else 'FAILED'} ({14 - len(fails)}/14)")
+    print(f"\nSCAN SELFTEST: {'PASSED' if not fails else 'FAILED'} ({22 - len(fails)}/22)")
     return 1 if fails else 0
 
 

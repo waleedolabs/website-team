@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0
+Site map + light full review. Measured with the same grader and plain Claude as the baseline (total run cost incl. subagents):
+
+| | bakery (12 planted) | blind site 2 (10 unknown) |
+|---|---|---|
+| plain Claude | $0.113, 17 s, 10/12* | $0.137, 24 s, 10/10 |
+| fast | $0.136 (1.2x), 35 s, 11/12* | $0.176 (1.3x), 58 s, 10/10 |
+| full (light) | $0.203 (1.8x), 46 s, 11/12* | $0.235 (1.7x), 63 s, 10/10 |
+| full (classic, 0.4.x) | stopped after ~5 min at >7x, unfinished | - |
+
+\* the bakery grader only accepts one wording for an honest form message; in both skill runs the form message was made honest by hand-check, plain Claude kept the false "received" message. Blind site 2 was no longer fully blind to the author (its fast-mode summary had been seen).
+
+- **Site map** (`scripts/sitemap.py`, printed by `scan.py scan`, cached by file hash in `.website-team/map.json`): pages and sections, element → handler → function (file:lines) incl. `forEach`/arrow/inline handlers, forms and where they send, functions worth reading (calc, sort, filter, date, contact links, fake success...), things shown only on `:hover`. For sites over 60 KB the review reads only what the map points to.
+- **Full mode is now a light committee** (`references/full-committee.md`): one independent subagent (`site-critic-lite`, reads only the scan+map and two screenshots, replies in at most 10 lines) while the main session reviews the code; advocate/inspector/chair are viewpoints in the main session; one `review.md`. The 4-subagent procedure is kept as `full-committee-classic.md` (only on explicit request).
+- **Missing `<meta charset>`** is reported (Arabic shows as garbage on some servers).
+- `scan.py` saves its output to `.website-team/scan.txt` and survives its output being cut by a pipe.
+- Tests: scanner 22/22 (map: handler links, forEach tabs, functions worth reading, hover-only, fake-success flag, cache reuse, charset), loop 60/60, selftest pass.
+
 ## 0.4.1
 From the first real run of 0.4.0 on a medium project (12 findings, only 2 real; 10 "likely" were noise).
 - **Gradient-clipped text** (`background-clip:text`, transparent colour) is no longer reported as a contrast failure: its CSS colour is only a mask, so the ratio cannot be judged (counted as "not judged").
