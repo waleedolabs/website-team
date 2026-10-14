@@ -28,6 +28,7 @@ If the user explicitly asks for the **full** team / committee, follow `${CLAUDE_
    - Never change prices, names, contact details or texts, and never delete content, links, buttons or sections.
    - `[ASK USER]` items: still fix them now with the smallest honest change (replacing a false "sent" message is required, not a content change); keep the real decision for the summary.
    - Fix bugs, do not redesign or restyle.
+   - Edit the site's real files in place (the originals are backed up in `.website-team`; in a git project `git diff` shows the changes). Never make a copy of the project, and never commit, push or deploy.
 
 4. **Recheck.** `python3 "${CLAUDE_SKILL_DIR}/scripts/scan.py" recheck SITE --state SITE/.website-team`
    - BROKEN BY THE EDIT: fix it, or put the file back with `scan.py restore SITE --state SITE/.website-team FILE`.
@@ -43,7 +44,7 @@ If the user explicitly asks for the **full** team / committee, follow `${CLAUDE_
 - ومن مراجعة الكود: <count> <2-4 words each> (ما بيثبتها الفحص الآلي)
 - باقي: <open> <2-4 words each, or "ولا شي">
 - بدها قرارك: <the ASK USER decisions, very short, or "ولا شي">
-- قبل ما ترفع الموقع: احذف مجلد .website-team (فيه النسخة الاحتياطية)
+- التعديلات انطبقت على ملفاتك (ما انرفع ولا انعمل commit شي). قبل ما ترفع: احذف مجلد .website-team
 ```
 
 Never call a scanner problem fixed unless the recheck says so; bugs found by reading are reported as code-review fixes, not as test-proven. The backup of the original files is in `SITE/.website-team/backup`.

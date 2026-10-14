@@ -203,7 +203,8 @@ CONTRAST_JS = """() => {
     const selector = el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\\s+/).join('.') : '');
     const text = el.textContent.trim().slice(0, 40);
     const fg = parse(cs.color), bs = bases(el);
-    if (!fg || !bs) { out.push({selector, text, judged: false}); return; }
+    const clip = (cs.webkitBackgroundClip || cs.backgroundClip || '') === 'text';  // gradient text: the CSS colour is only a mask
+    if (clip || !fg || !bs) { out.push({selector, text, judged: false}); return; }
     let worst = Infinity;
     for (const b of bs) worst = Math.min(worst, ratio(blend(fg, b), b));
     const size = parseFloat(cs.fontSize), bold = parseInt(cs.fontWeight) >= 700;
@@ -315,8 +316,9 @@ def check_page(cx, base, page_name, results, skip, form_setup=None, form_values=
             resp = page.goto(url)
             page.wait_for_timeout(300)
         if ext:
-            heavy = sorted({u for t, u in ext if t in ("script", "stylesheet")})
-            light = sorted({u for t, u in ext if t not in ("script", "stylesheet")})
+            fontish = lambda u: urlparse(u).netloc in ("fonts.googleapis.com", "fonts.gstatic.com", "use.typekit.net", "fonts.bunny.net")  # noqa: E731
+            heavy = sorted({u for t, u in ext if t in ("script", "stylesheet") and not fontish(u)})
+            light = sorted({u for t, u in ext if t not in ("script", "stylesheet") or fontish(u)})
             if heavy:
                 add(row(f"external:{P}", f"{P}: depends on external scripts/styles", "needs_review",
                         f"{len(heavy)} external scripts/stylesheets were blocked by the isolated test; "

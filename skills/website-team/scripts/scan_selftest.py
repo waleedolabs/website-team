@@ -60,10 +60,25 @@ def main():
           and "of which 1 were passing before" in out, out)
     check("deleted link is not counted as fixed", "no longer tested" in out and "link:index.html:#contactt" in out, out)
 
+    # noise sources seen on a real project: gradient headings, buttons hidden until a state change, web fonts
+    n = tmp / "noise"
+    n.mkdir()
+    (n / "index.html").write_text("""<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>اختبار الضجيج</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo">
+<style>h1{background:linear-gradient(90deg,#f0f,#0ff);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
+#later{opacity:0;pointer-events:none}</style></head>
+<body><h1>عنوان متدرج اللون طويل بما يكفي</h1><button id="later" onclick="this.dataset.x=1">لاحقاً</button>
+<button id="go" onclick="document.body.dataset.x=1">ابدأ الآن</button></body></html>""", encoding="utf-8")
+    out = run("scan", str(n), "--state", str(n / ".website-team"))
+    check("gradient heading is not a contrast problem", "contrast:" not in out.split("NOT TESTABLE")[0], out)
+    check("web fonts are not a problem", "external:" not in out, out)
+    check("hidden-until-later button is grouped as not testable", "NOT TESTABLE (1)" in out and "btn:" not in out.split("NOT TESTABLE")[0], out)
+
     out = run("restore", str(site), "--state", str(st), "index.html")
     check("restore puts the original back", (site / "index.html").read_text(encoding="utf-8") == PAGE, out)
     shutil.rmtree(tmp, ignore_errors=True)
-    print(f"\nSCAN SELFTEST: {'PASSED' if not fails else 'FAILED'} ({11 - len(fails)}/11)")
+    print(f"\nSCAN SELFTEST: {'PASSED' if not fails else 'FAILED'} ({14 - len(fails)}/14)")
     return 1 if fails else 0
 
 

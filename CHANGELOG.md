@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1
+From the first real run of 0.4.0 on a medium project (12 findings, only 2 real; 10 "likely" were noise).
+- **Gradient-clipped text** (`background-clip:text`, transparent colour) is no longer reported as a contrast failure: its CSS colour is only a mask, so the ratio cannot be judged (counted as "not judged").
+- **Web-font stylesheets** (Google Fonts, Typekit, Bunny) are treated as fonts ("not run"), not as external scripts that change behaviour.
+- **Buttons that could not be clicked** (hidden/covered until a state change, e.g. before a presentation starts) are shown in one "NOT TESTABLE" line instead of one numbered problem each, and are not counted as problems.
+- **Edit in place, never copy.** SKILL.md now says explicitly: edit the real files (originals are backed up in `.website-team`; `git diff` shows the changes), never copy the project, never commit/push/deploy. In 0.4.0 the model on that project worked on a copy, which the skill does not ask for.
+- 3 new scanner tests reproduce the three noise sources (before: 1 fail + 2 needs_review; after: 0 problems); scanner tests 14/14, loop 60/60, selftest pass.
+
 ## 0.4.0
 Redesign for low usage. Measured on the same machine: the old committee flow used ~1.1M cache-read tokens in the main session alone (and never finished a run); plain Claude ~0.15M; this version ~0.2-0.3M, about 40-50 s.
 - **Fast mode is the default.** New `scripts/scan.py` (scan / recheck / restore): real-browser findings with file:line and a fix direction; Claude reviews the code itself and fixes; the recheck proves fixed / still open / broken-by-the-edit and warns when something was removed. Backup in `<site>/.website-team`.

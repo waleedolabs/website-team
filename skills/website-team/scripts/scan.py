@@ -160,8 +160,20 @@ def collect(site):
     return data, res
 
 
+def untested(r):
+    """needs_review rows where the check itself could not run (e.g. a button hidden until a presentation starts)."""
+    return r["status"] == "needs_review" and "could not run" in (r.get("detail") or "")
+
+
 def problems(res):
-    return [r for r in res if r["status"] in ("fail", "needs_review")]
+    return [r for r in res if r["status"] in ("fail", "needs_review") and not untested(r)]
+
+
+def untested_line(res):
+    ids = [r["id"].split(":", 2)[-1] for r in res if untested(r)]
+    if ids:
+        print(f"\nNOT TESTABLE ({len(ids)}): hidden/covered/disabled at load, so they could not be clicked: "
+              f"{', '.join(ids[:8])}{' ...' if len(ids) > 8 else ''}. Not counted as problems; mention in one phrase only if relevant.")
 
 
 def show(site, rs, files, start=1):
@@ -208,6 +220,7 @@ def cmd_scan(a):
           f"({sum(r['status'] == 'fail' for r in ps)} proven, {sum(r['status'] == 'needs_review' for r in ps)} likely). "
           f"Backup: {bk}")
     show(site, ps, site_files(site))
+    untested_line(res)
     print("\nRULES: fix with small edits; never change prices/names/contact data or delete content; "
           "[ASK USER] items: do the honest minimal fix and list the decision for the user. Then run recheck.")
 
@@ -229,7 +242,7 @@ def cmd_recheck(a):
     before = {r["id"]: r for r in base["results"]}
     _, res = collect(site)
     now = {r["id"]: r for r in res}
-    bad = lambda r: r is not None and r["status"] in ("fail", "needs_review")  # noqa: E731
+    bad = lambda r: r is not None and r["status"] in ("fail", "needs_review") and not untested(r)  # noqa: E731
     fixed = [i for i, r in before.items() if bad(r) and not bad(now.get(i)) and i in now]
     gone = [i for i, r in before.items() if bad(r) and i not in now]
     texts = base.get("link_text", {})
