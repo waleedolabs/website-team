@@ -431,9 +431,10 @@ def check_page(cx, base, page_name, results, skip, form_setup=None, form_values=
             cid, name = f"btn:{P}:{c['key']}", f"{P}: button '{c['key']}' works"
             try:
                 with cx.page() as page:
-                    errs, popups = [], []
+                    errs, popups, choosers = [], [], []
                     page.on("pageerror", lambda e: errs.append(str(e)))
                     page.on("popup", lambda p: popups.append(p.url))
+                    page.on("filechooser", lambda fc: choosers.append(1))  # opening the file picker is an observable result
                     page.goto(url)
                     page.wait_for_timeout(150)
                     page.evaluate(TAG_JS, c["i"])
@@ -452,8 +453,9 @@ def check_page(cx, base, page_name, results, skip, form_setup=None, form_values=
                     add(row(cid, name, "fail", "click threw a JS error", errs[0][:200]))
                 elif nav_status is not None and nav_status >= 400:
                     add(row(cid, name, "fail", f"click navigated to a broken page (HTTP {nav_status})", after[0]))
-                elif before != after or popups:
-                    add(row(cid, name, "pass", "click produced an observable change"))
+                elif before != after or popups or choosers:
+                    add(row(cid, name, "pass", "click opened the file picker" if choosers and before == after
+                            else "click produced an observable change"))
                 elif active:
                     add(row(cid, name, "pass", "already active (aria-pressed/selected/current) so no change is expected"))
                 else:

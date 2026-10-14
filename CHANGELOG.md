@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0
+Requested by the user: discover first, ask, and only then change anything.
+- **Find → plan message → wait → fix.** Discovery (scan, map, code review, and the critic in full mode) is read-only. The skill then sends ONE plan message (proven by tests / found by reading / suggestions that need approval, with proposed wording for text changes) and stops. Only after the user answers does it edit, recheck and send the short summary. Tested with two-turn runs: after turn 1 zero site files differed from the originals in both the fast and full runs; after "اي" the fixes were applied in place (blind site 2, fast: 10/10 by the independent grader).
+- Edits happen in the real files after approval (backup in `.website-team`), which also removes the "worked on a copy" confusion seen on a real project.
+- A button that opens the file picker is now counted as an observable result (it was reported as "does nothing").
+- Plan length limit (about 18 lines) and no messages other than the plan and the summary.
+- Known grader limits (not product bugs): the bakery grader does not count `scrollIntoView` as "the button does something" nor the wording "غير مربوط" as honest, so the full run scored 10/12 there while the page was actually fixed (checked by hand).
+- Tests: scanner 23/23, loop 60/60, selftest pass.
+
 ## 0.5.0
 Site map + light full review. Measured with the same grader and plain Claude as the baseline (total run cost incl. subagents):
 

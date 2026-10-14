@@ -1,6 +1,6 @@
 {
   "name": "website-team",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Fast website check on request: real browser tests point to the exact lines of every problem, Claude fixes them, a recheck proves the fixes. Full four-member committee available on explicit request.",
   "author": {
     "name": "Waleed Arnaout"
