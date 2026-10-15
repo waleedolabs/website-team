@@ -5,6 +5,8 @@ It finds problems with real browser tests plus a careful code review, **tells yo
 
 > **Status: beta.** Tested on small test sites and on one real project (Windows). See [Honest limits](#honest-limits).
 
+![How Website Team works: scan, code review, one plan message, you decide, fix and recheck, short summary](docs/workflow.png)
+
 ## Install
 
 ```
