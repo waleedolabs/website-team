@@ -19,6 +19,7 @@ PAGE = """<!doctype html>
 </body></html>
 """
 fails = []
+total = [0]
 
 
 def run(*args):
@@ -27,6 +28,7 @@ def run(*args):
 
 
 def check(name, cond, out=""):
+    total[0] += 1
     print(("OK   " if cond else "FAIL ") + name)
     if not cond:
         fails.append(name)
@@ -71,8 +73,9 @@ def main():
 <body><h1>عنوان متدرج اللون طويل بما يكفي</h1><button id="later" onclick="this.dataset.x=1">لاحقاً</button>
 <button id="go" onclick="document.body.dataset.x=1">ابدأ الآن</button></body></html>""", encoding="utf-8")
     (n / "index.html").write_text((n / "index.html").read_text(encoding="utf-8").replace(
-        '<button id="go"', '<input type="file" id="f" hidden><button id="pick" onclick="document.getElementById(\'f\').click()">رفع ملف</button><button id="go"'), encoding="utf-8")
+        '<button id="go"', '<input type="file" id="f" hidden><input type="file" id="g" style="display:none"><button id="pick" onclick="document.getElementById(\'f\').click()">رفع ملف</button><button id="go"'), encoding="utf-8")
     out = run("scan", str(n), "--state", str(n / ".website-team"))
+    check("display:none / hidden file input needs no label", "labels:index.html" not in out, out)
     check("button that opens the file picker is not 'does nothing'", "btn:index.html:#pick" not in out, out)
     check("gradient heading is not a contrast problem", "contrast:" not in out.split("NOT TESTABLE")[0], out)
     check("web fonts are not a problem", "external:" not in out, out)
@@ -107,7 +110,7 @@ document.getElementById('book').addEventListener('submit', e => { e.preventDefau
     out = run("restore", str(site), "--state", str(st), "index.html")
     check("restore puts the original back", (site / "index.html").read_text(encoding="utf-8") == PAGE, out)
     shutil.rmtree(tmp, ignore_errors=True)
-    print(f"\nSCAN SELFTEST: {'PASSED' if not fails else 'FAILED'} ({23 - len(fails)}/23)")
+    print(f"\nSCAN SELFTEST: {'PASSED' if not fails else 'FAILED'} ({total[0] - len(fails)}/{total[0]})")
     return 1 if fails else 0
 
 

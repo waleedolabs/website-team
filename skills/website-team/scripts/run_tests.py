@@ -216,7 +216,9 @@ CONTRAST_JS = """() => {
 
 LABELS_JS = """() => {
   const fields = [...document.querySelectorAll('input, select, textarea')]
-    .filter(e => !['hidden','submit','button','reset','image'].includes((e.type||'').toLowerCase()));
+    .filter(e => !['hidden','submit','button','reset','image'].includes((e.type||'').toLowerCase()))
+    // not rendered (hidden attribute / display:none): not focusable, not exposed to screen readers, no label needed
+    .filter(e => !e.closest('[hidden]') && getComputedStyle(e).display !== 'none' && !(getComputedStyle(e).visibility === 'hidden' && !e.closest('label')));
   return fields.filter(e => {
     if (e.getAttribute('aria-label') && e.getAttribute('aria-label').trim()) return false;
     if (e.getAttribute('aria-labelledby')) return false;

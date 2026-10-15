@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1
+From the first real run of 0.6.0 (it worked as designed: plan message, waited for the answer, offered in-place edits for both `docs/` and the source).
+- **Inputs that are not rendered** (`hidden` attribute, `display:none`) are no longer reported as "field without a label": they cannot be focused or read by a screen reader. Visually-hidden (clipped/transparent) inputs are still checked. (Reported on a hidden file input that the page's button opens.)
+- Scanner self-test now counts its own checks (24/24).
+
 ## 0.6.0
 Requested by the user: discover first, ask, and only then change anything.
 - **Find → plan message → wait → fix.** Discovery (scan, map, code review, and the critic in full mode) is read-only. The skill then sends ONE plan message (proven by tests / found by reading / suggestions that need approval, with proposed wording for text changes) and stops. Only after the user answers does it edit, recheck and send the short summary. Tested with two-turn runs: after turn 1 zero site files differed from the originals in both the fast and full runs; after "اي" the fixes were applied in place (blind site 2, fast: 10/10 by the independent grader).

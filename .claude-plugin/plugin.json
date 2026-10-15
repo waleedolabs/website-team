@@ -1,16 +1,20 @@
 {
   "name": "website-team",
-  "version": "0.6.0",
-  "description": "Fast website check on request: real browser tests point to the exact lines of every problem, Claude fixes them, a recheck proves the fixes. Full four-member committee available on explicit request.",
+  "version": "0.6.1",
+  "description": "Review an existing website on request: real browser tests plus a code review find the problems, it asks before changing anything, then fixes and proves the fixes with a re-test. Full mode adds an independent critic.",
   "author": {
     "name": "Waleed Arnaout"
   },
   "keywords": [
     "website",
-    "design",
+    "qa",
     "review",
-    "testing",
+    "accessibility",
     "playwright",
-    "accessibility"
-  ]
+    "arabic",
+    "rtl"
+  ],
+  "license": "MIT",
+  "repository": "https://github.com/waleedolabs/website-team",
+  "homepage": "https://github.com/waleedolabs/website-team"
 }

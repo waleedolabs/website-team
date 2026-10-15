@@ -1,0 +1,14 @@
+{
+  "name": "website-team",
+  "owner": {
+    "name": "Waleed Arnaout"
+  },
+  "plugins": [
+    {
+      "name": "website-team",
+      "source": "./",
+      "description": "Review an existing website on request: browser tests + code review, asks before changing anything, proves the fixes."
+    }
+  ],
+  "description": "Website Team: an on-request website reviewer for Claude Code."
+}
